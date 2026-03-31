@@ -1,5 +1,8 @@
+import logging
 from datetime import datetime
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -25,7 +28,7 @@ def _run_full_job():
         result = execute_full_pipeline(db)
         _state["last_run_at"] = datetime.utcnow().isoformat()
         _state["last_status"] = "ok"
-        _state["last_message"] = result.message
+        _state["last_message"] = result["message"]
     except Exception as exc:
         _state["last_run_at"] = datetime.utcnow().isoformat()
         _state["last_status"] = "error"
@@ -94,9 +97,9 @@ def _fetch_filings_and_metrics(db, company):
     db.commit()
 
 
-def execute_full_pipeline(db):
+def execute_full_pipeline(db) -> dict[str, Any]:
     _sync_universe(db)
-    companies = db.query(Company).all()
+    companies = db.query(Company).order_by(Company.id).all()
     analyzed = 0
     failures: list[str] = []
     for company in companies:
@@ -106,14 +109,27 @@ def execute_full_pipeline(db):
             apply_critical_risk_gate(db, company)
             analyzed += 1
         except Exception as exc:
-            failures.append(f"{company.ticker}: {str(exc)}")
+            failures.append(f"{company.ticker}: {type(exc).__name__}: {exc}")
+            logger.exception("Pipeline failed for %s", company.ticker)
+            try:
+                db.rollback()
+            except Exception:
+                pass
             continue
-    failure_note = f" Failed: {len(failures)}." if failures else ""
-    failure_preview = f" Examples -> {' | '.join(failures[:2])}" if failures else ""
-    class Result:
-        def __init__(self, message):
-            self.message = message
-    return Result(f"Full pipeline run finished. Successfully analyzed {analyzed} companies.{failure_note}{failure_preview}")
+    n = len(companies)
+    if n == 0:
+        msg = (
+            "Full pipeline: universe is empty after sync (0 companies). "
+            "Check DATABASE_URL and that the app can write to the database."
+        )
+    else:
+        failure_note = f" Failed: {len(failures)}." if failures else ""
+        failure_preview = f" First errors -> {' | '.join(failures[:5])}" if failures else ""
+        msg = (
+            f"Full pipeline run finished. Successfully analyzed {analyzed} of {n} companies."
+            f"{failure_note}{failure_preview}"
+        )
+    return {"message": msg, "analyzed": analyzed, "company_count": n, "failures": failures}
 
 
 def start_scheduler():

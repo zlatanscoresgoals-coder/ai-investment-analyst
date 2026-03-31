@@ -11,9 +11,10 @@ SEC_ARCHIVES_BASE = "https://www.sec.gov/Archives/edgar/data"
 
 
 def _sec_headers() -> dict[str, str]:
-    # SEC expects a descriptive User-Agent.
+    # SEC expects a descriptive User-Agent. Do not set Host — requests sets it from the URL;
+    # a wrong Host (e.g. data.sec.gov for www.sec.gov) breaks CIK lookup and submissions.
     ua = os.getenv("SEC_USER_AGENT", "AIInvestmentAnalyst/0.1 contact@example.com")
-    return {"User-Agent": ua, "Accept-Encoding": "gzip, deflate", "Host": "data.sec.gov"}
+    return {"User-Agent": ua, "Accept-Encoding": "gzip, deflate"}
 
 
 def _get_json(url: str) -> dict[str, Any]:

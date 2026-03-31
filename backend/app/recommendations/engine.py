@@ -1,5 +1,4 @@
-from datetime import datetime
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -58,12 +57,17 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
         .order_by(Recommendation.as_of.desc())
         .first()
     )
+    now_utc = datetime.now(timezone.utc)
+    prev_as_of = None
+    if prev_rec and prev_rec.as_of:
+        pa = prev_rec.as_of
+        prev_as_of = pa if pa.tzinfo else pa.replace(tzinfo=timezone.utc)
     if (
         prev_rec
         and prev_rec.status == "recommended"
         and score_card["final_score"] >= (settings.recommendation_threshold - settings.recommendation_hysteresis_buffer)
-        and prev_rec.as_of
-        and prev_rec.as_of >= (datetime.utcnow() - timedelta(minutes=settings.recommendation_hysteresis_minutes))
+        and prev_as_of is not None
+        and prev_as_of >= (now_utc - timedelta(minutes=settings.recommendation_hysteresis_minutes))
     ):
         # Prevent recommendation churn from short-term noise.
         status = "recommended"
@@ -189,7 +193,7 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
 
     recommendation = Recommendation(
         company_id=company.id,
-        as_of=datetime.utcnow(),
+        as_of=datetime.now(timezone.utc),
         status=status,
         final_score=score_card["final_score"],
         summary=(

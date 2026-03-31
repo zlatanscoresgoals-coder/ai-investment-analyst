@@ -243,7 +243,12 @@ def run_recommendations(db: Session = Depends(get_db)) -> GenericMessage:
 @app.post("/run/full", response_model=GenericMessage)
 def run_full_pipeline(db: Session = Depends(get_db)) -> GenericMessage:
     result = execute_full_pipeline(db)
-    return GenericMessage(message=result.message)
+    return GenericMessage(
+        message=result["message"],
+        analyzed=result["analyzed"],
+        company_count=result["company_count"],
+        failures=result["failures"] or None,
+    )
 
 
 @app.get("/recommendations", response_model=list[RecommendationOut])
@@ -464,6 +469,7 @@ def dashboard(db: Session = Depends(get_db)):
     #status {{
       margin: 14px 0 18px 0; padding: 12px 14px; border-radius: 12px;
       background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+      white-space: pre-wrap; font-size: 13px;
     }}
     #recs {{ display: grid; grid-template-columns: 1fr; gap: 14px; }}
     .card {{
@@ -516,7 +522,11 @@ async function runFull() {{
   document.getElementById('status').textContent = "Status: running full pipeline...";
   const res = await fetch('/run/full', {{ method: 'POST' }});
   const data = await res.json();
-  document.getElementById('status').textContent = "Status: " + data.message;
+  let line = "Status: " + data.message;
+  if (data.failures && data.failures.length) {{
+    line += "\\n\\nPer-ticker errors (see Railway logs for full trace):\\n" + data.failures.slice(0, 8).join("\\n");
+  }}
+  document.getElementById('status').textContent = line;
   await loadRecs();
 }}
 async function loadRecs() {{

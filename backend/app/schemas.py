@@ -29,3 +29,6 @@ class RecommendationDetailOut(RecommendationOut):
 
 class GenericMessage(BaseModel):
     message: str
+    analyzed: Optional[int] = None
+    company_count: Optional[int] = None
+    failures: Optional[list[str]] = None
