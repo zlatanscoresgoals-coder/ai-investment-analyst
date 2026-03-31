@@ -30,9 +30,15 @@ This is a runnable AI investment analyst product that:
 
 ## Notes
 
+- Live **stock prices** on the dashboard are fetched from Yahoo Finance chart data (context only; not for order execution).
+- Forward-looking narrative is **illustrative** and stored with each recommendation after analysis runs; it is not a price target or guarantee.
 - Uses SQLite by default (`backend/investment_analyst.db`).
 - Endpoints are still available at `http://127.0.0.1:8000/docs`.
 - For production, add scheduler workers and persistent deployment.
+
+## Operations Runbook
+
+- See `runbook.md` for production operations, monitoring, incident response, and maintenance checklist.
 
 ## Cloud deploy (Render, fastest path)
 

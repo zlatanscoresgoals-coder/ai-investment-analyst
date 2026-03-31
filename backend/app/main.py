@@ -14,6 +14,7 @@ from app.ingestion.sec_filings import (
     fetch_financial_metrics_last_3y,
     fetch_last_3y_10k_urls,
 )
+from app.market.quotes import fetch_live_quote
 from app.models import Company, ContextSignal, CriticalAlert, Filing, FinancialMetric, PersonaScore, Recommendation
 from app.recommendations.engine import run_recommendation_for_company
 from app.risk.critical_events import apply_critical_risk_gate, update_alert_workflow
@@ -268,17 +269,25 @@ def list_recommendations(status: str = Query(default="recommended"), db: Session
         .order_by(Recommendation.final_score.desc())
         .all()
     )
-    return [
-        RecommendationOut(
-            ticker=company.ticker,
-            status=rec.status,
-            final_score=rec.final_score,
-            summary=rec.summary,
-            horizon=rec.horizon,
-            as_of=rec.as_of,
+    out: list[RecommendationOut] = []
+    for rec, company in rows:
+        q = fetch_live_quote(company.ticker)
+        out.append(
+            RecommendationOut(
+                ticker=company.ticker,
+                status=rec.status,
+                final_score=rec.final_score,
+                summary=rec.summary,
+                horizon=rec.horizon,
+                as_of=rec.as_of,
+                last_price=q["last_price"] if q else None,
+                price_currency=q.get("currency") if q else None,
+                price_change_pct_day=q.get("change_pct_day") if q else None,
+                quote_as_of=q.get("as_of") if q else None,
+                quote_source=q.get("source") if q else None,
+            )
         )
-        for rec, company in rows
-    ]
+    return out
 
 
 @app.get("/recommendations/{ticker}", response_model=RecommendationDetailOut)
@@ -309,6 +318,7 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
         .first()
     )
     filing_years = [f.fiscal_year for f in db.query(Filing).filter(Filing.company_id == company.id).all()]
+    live_q = fetch_live_quote(company.ticker)
 
     return RecommendationDetailOut(
         ticker=company.ticker,
@@ -317,6 +327,11 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
         summary=rec.summary,
         horizon=rec.horizon,
         as_of=rec.as_of,
+        last_price=live_q["last_price"] if live_q else None,
+        price_currency=live_q.get("currency") if live_q else None,
+        price_change_pct_day=live_q.get("change_pct_day") if live_q else None,
+        quote_as_of=live_q.get("as_of") if live_q else None,
+        quote_source=live_q.get("source") if live_q else None,
         persona_scores={
             "buffett": persona.buffett_score if persona else 0.0,
             "ackman": persona.ackman_score if persona else 0.0,
@@ -334,6 +349,7 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
             "notes": context.notes_json if context else {},
         },
         filing_years_analyzed=sorted(set(filing_years), reverse=True),
+        live_quote=live_q,
     )
 
 
@@ -562,6 +578,14 @@ async function loadRecs() {{
     const contributionHtml = Object.entries(contributions).map(([k,v]) => `<li><b>${{k}}</b> contributes <span class="mono">${{fmt(v)}}</span> weighted points (weight <span class="mono">${{fmt(weights[k], 2)}}</span>).</li>`).join('');
     const trendHtml = trends.map(t => `<li>FY${{t.fiscal_year}}: Revenue <b>${{compactMoney(t.revenue)}}</b>, Gross margin <b>${{pct(t.gross_margin)}}</b>, Operating margin <b>${{pct(t.operating_margin)}}</b>, ROE <b>${{pct(t.roe)}}</b>, FCF <b>${{compactMoney(t.fcf)}}</b>, Debt/EBITDA <b>${{fmt(t.debt_to_ebitda)}}</b>, Current ratio <b>${{fmt(t.current_ratio)}}</b>.</li>`).join('');
     const summaryText = `The stock is recommended with a blended score of ${{item.final_score.toFixed(2)}}. Under the Buffett lens, quality and cash generation remain supportive; Ackman-style quality metrics and operating profile are constructive. The Wood lens focuses on growth trajectory and margin structure, while the Burry lens checks balance-sheet resilience and valuation discipline. Institutional suitability is evaluated through liquidity and scale assumptions.`;
+    const fwd = (d.thesis && d.thesis.investment_case_forward) ? d.thesis.investment_case_forward : {{}};
+    const priceLine = (item.last_price != null && item.last_price !== undefined)
+      ? `${{Number(item.last_price).toFixed(2)}} ${{item.price_currency || 'USD'}}`
+      : 'N/A';
+    const dayChg = (item.price_change_pct_day != null && item.price_change_pct_day !== undefined)
+      ? `${{Number(item.price_change_pct_day) >= 0 ? '+' : ''}}${{Number(item.price_change_pct_day).toFixed(2)}}%`
+      : 'N/A';
+    const quoteMeta = item.quote_as_of ? `as of ${{item.quote_as_of}} (${{item.quote_source || 'market'}})` : '';
     return `
       <div class="card">
         <div class="header">
@@ -575,12 +599,22 @@ async function loadRecs() {{
           <h3>Executive Investment Summary</h3>
           <div style="font-size:13px; color:#d5def0; line-height:1.5;">${{summaryText}}</div>
           <div class="kpi">
+            <div class="chip">Last price: <b>${{priceLine}}</b></div>
+            <div class="chip">Day change: <b>${{dayChg}}</b></div>
+            <div class="chip">Quote: <span class="mono">${{quoteMeta || 'refresh if missing'}}</span></div>
             <div class="chip">Revenue: <b>${{compactMoney(keyFinancials.revenue)}}</b></div>
             <div class="chip">FCF: <b>${{compactMoney(keyFinancials.fcf)}}</b></div>
             <div class="chip">Revenue growth: <b>${{pct(keyFinancials.revenue_growth_pct)}}</b></div>
             <div class="chip">Operating margin: <b>${{pct(keyFinancials.operating_margin)}}</b></div>
             <div class="chip">ROE: <b>${{pct(keyFinancials.roe)}}</b></div>
           </div>
+        </div>
+        <div class="panel" style="margin-top:10px;">
+          <h3>Why invest? Forward-looking rationale</h3>
+          <div style="font-size:13px; color:#dbe7ff; line-height:1.5;">${{fwd.headline || 'Forward case will appear after the next full analysis run.'}}</div>
+          <ul>${{(fwd.bullets || []).map(b => `<li>${{b}}</li>`).join('')}}</ul>
+          <div class="meta">${{fwd.horizon_note || ''}}</div>
+          <div class="meta" style="margin-top:8px; font-size:11px;">${{fwd.disclaimer || ''}}</div>
         </div>
         <div class="grid">
           <div class="panel">

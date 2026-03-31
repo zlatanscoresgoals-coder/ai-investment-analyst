@@ -9,7 +9,7 @@ services:
     autoDeploy: true
     envVars:
       - key: SEC_USER_AGENT
-        sync: false
+        value: AIInvestmentAnalyst/0.1 your-email@example.com
       - key: DATABASE_URL
         fromDatabase:
           name: ai-investment-analyst-db
@@ -19,7 +19,7 @@ services:
       - key: AUTH_USERNAME
         value: "admin"
       - key: AUTH_PASSWORD
-        sync: false
+        value: "GoatAnalyst99"
       - key: AUTO_REFRESH_ENABLED
         value: "true"
       - key: AUTO_REFRESH_INTERVAL_MINUTES

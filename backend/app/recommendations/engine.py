@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.analysis.financial_ratios import compute_financial_ratios
 from app.config import settings
 from app.models import Company, ContextSignal, Filing, FinancialMetric, PersonaScore, Recommendation
+from app.recommendations.forward_case import build_forward_investment_case
 from app.scoring.blender import WEIGHTS, score_all
 
 
@@ -143,6 +144,30 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
         "institutional": score_card["institutional_score"] * WEIGHTS["institutional"],
     }
 
+    persona_for_top = {
+        "buffett_score": "quality / moat (Buffett-style)",
+        "ackman_score": "concentrated quality (Ackman-style)",
+        "wood_score": "growth & innovation (Wood-style)",
+        "burry_score": "value / balance sheet (Burry-style)",
+        "pelosi_proxy_score": "disclosure-style signal (weak)",
+        "institutional_score": "scale & liquidity (index-style)",
+    }
+    score_keys = [k for k in score_card if k.endswith("_score") and k != "final_score"]
+    top_key = max(score_keys, key=lambda k: score_card[k]) if score_keys else "buffett_score"
+    top_persona_label = persona_for_top.get(top_key, "blended")
+
+    forward_case = build_forward_investment_case(
+        company_name=company.name,
+        ticker=company.ticker,
+        revenue_growth_pct=revenue_growth,
+        operating_margin=latest.operating_margin,
+        roe=latest.roe,
+        fcf=latest.fcf,
+        valuation_pe=latest.valuation_pe,
+        final_score=score_card["final_score"],
+        top_persona=top_persona_label,
+    )
+
     trend_rows = []
     for row in metric_rows:
         trend_rows.append(
@@ -204,6 +229,7 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
                 "buffer_points": settings.recommendation_hysteresis_buffer,
                 "cooldown_minutes": settings.recommendation_hysteresis_minutes,
             },
+            "investment_case_forward": forward_case,
         },
         risk_json={
             "key_risks": [
