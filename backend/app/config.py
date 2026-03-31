@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +17,8 @@ class Settings(BaseSettings):
     auth_username: str = "admin"
     auth_password: str = "GoatAnalyst99"
     auth_session_cookie: str = "aiia_session"
+    # Optional: reliable quotes on cloud hosts (Yahoo often blocks datacenters).
+    finnhub_api_key: str = Field(default="", validation_alias="FINNHUB_API_KEY")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

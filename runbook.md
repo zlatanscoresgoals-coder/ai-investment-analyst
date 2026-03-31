@@ -13,8 +13,9 @@ If `last_run_at` is stale, trigger **Run Full Analysis** from dashboard.
 
 ## Market quotes (live price)
 
-- The dashboard shows a **last price** and **day change** sourced from Yahoo Finance chart data (best-effort).
-- Quotes are for **context only**, not execution prices; latency and accuracy depend on Yahoo and network conditions.
+- The app tries **Finnhub** (if `FINNHUB_API_KEY` is set), then **Yahoo**, then **Stooq**.
+- **Railway/datacenter IPs are often blocked by Yahoo** — set a free Finnhub key in Railway Variables for reliable prices.
+- Quotes are for **context only**, not execution prices.
 - Filings and fundamentals remain SEC-first; market prices are a separate layer.
 
 ## 2) Production Configuration (Railway)
