@@ -61,7 +61,7 @@ Use:
 
 1. Connect the GitHub repo and deploy. Either:
    - Set the service **Root Directory** to `backend` and start with `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, **or**
-   - Keep repo root as root and use the repo-root `railway.toml` (build/start already `cd backend && …`).
+   - Keep **repo root** as the service root: `railway.toml` uses **RAILPACK** (Railway’s current builder; do not use `nixpacks`). A root **`requirements.txt`** delegates to `backend` via `-r backend/requirements.txt`; start command `cd backend && uvicorn …`.
 2. Add a **Postgres** plugin and set `DATABASE_URL` on the web service (SQLAlchemy style `postgresql+psycopg2://…` is fine).
 3. Set `SEC_USER_AGENT`, `AUTH_PASSWORD`, and **`FINNHUB_API_KEY`** (quotes often fail from cloud IPs without it).
 4. After deploy, open `https://<your-railway-url>/health/quote?ticker=AAPL` (no login) to see which quote provider succeeded.

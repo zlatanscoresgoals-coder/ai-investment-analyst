@@ -1,0 +1,2 @@
+# Railpack/Railway installs from repo root; delegate to the FastAPI app deps.
+-r backend/requirements.txt

@@ -8,9 +8,7 @@ REPOSITORY LAYOUT
 - Monorepo: Python app lives under folder `backend/` (not the repo root).
 - Entrypoint: `uvicorn app.main:app --host 0.0.0.0 --port $PORT` with working directory = `backend` (PYTHONPATH must resolve `app` as `backend/app`).
 - Dependencies: `backend/requirements.txt` (includes FastAPI, SQLAlchemy, yfinance, requests, etc.).
-- Repo root may contain `railway.toml` with:
-  - buildCommand: `cd backend && pip install -r requirements.txt`
-  - startCommand: `cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Repo root has `railway.toml` with builder **RAILPACK** (not nixpacks), root `requirements.txt` containing `-r backend/requirements.txt`, and startCommand: `cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 
 ALTERNATIVE (cleaner on Railway)
 - Set the service “Root Directory” to `backend` in Railway UI, then:
