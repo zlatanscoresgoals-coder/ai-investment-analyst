@@ -6,6 +6,7 @@ from app.analysis.financial_ratios import compute_financial_ratios
 from app.config import settings
 from app.models import Company, ContextSignal, Filing, FinancialMetric, PersonaScore, Recommendation
 from app.recommendations.forward_case import build_forward_investment_case
+from app.recommendations.persona_elaboration import build_persona_lens_elaboration
 from app.scoring.blender import WEIGHTS, score_all
 
 
@@ -191,6 +192,17 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
             }
         )
 
+    persona_lens_elaboration = build_persona_lens_elaboration(
+        score_card=score_card,
+        weights=WEIGHTS,
+        persona_checklist=persona_checklist,
+        latest=latest,
+        revenue_growth=revenue_growth,
+        trend_rows=trend_rows,
+        keyword_counts=keyword_counts,
+        raw_metrics=raw_metrics,
+    )
+
     recommendation = Recommendation(
         company_id=company.id,
         as_of=datetime.now(timezone.utc),
@@ -222,6 +234,7 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
                 "revenue_growth_pct": revenue_growth,
             },
             "persona_reasoning": persona_reasoning,
+            "persona_lens_elaboration": persona_lens_elaboration,
             "persona_checklist": persona_checklist,
             "score_contribution": score_contribution,
             "score_weights": WEIGHTS,

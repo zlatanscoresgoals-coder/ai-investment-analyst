@@ -418,8 +418,8 @@
 
     .lens-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-      gap: 14px;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 20px;
     }
     .lens-card {
       padding: 16px 18px;
@@ -428,14 +428,162 @@
       border-radius: 8px;
       border-left-width: 4px;
     }
+    .lens-card-detail {
+      padding: 20px 22px 22px;
+    }
     .lens-card .lname {
       font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.14em;
-      margin-bottom: 8px;
+      margin-bottom: 0;
     }
     .lens-card .ltext { font-size: 13px; line-height: 1.75; color: var(--body-dim); }
+    .lens-head { margin-bottom: 12px; }
+    .lens-tagline {
+      margin: 8px 0 0;
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--text-secondary);
+    }
+    .lens-stats {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px 14px;
+      margin-bottom: 4px;
+      padding: 14px 16px;
+      background: rgba(0,0,0,0.22);
+      border-radius: 8px;
+      border: 1px solid var(--border-card);
+    }
+    @media (min-width: 520px) {
+      .lens-stats { grid-template-columns: repeat(4, 1fr); }
+    }
+    .lens-stat-lbl {
+      display: block;
+      font-size: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-muted);
+      margin-bottom: 5px;
+    }
+    .lens-stat-val { font-size: 13px; font-weight: 600; color: var(--text); }
+    .lens-section { margin-top: 16px; }
+    .lens-section-title {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--text-muted);
+      margin: 0 0 10px 0;
+    }
+    .lens-narrative {
+      font-size: 13px;
+      line-height: 1.85;
+      color: var(--body-dim);
+      margin: 0;
+    }
+    .lens-crit-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .lens-crit-list li {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--body-dim);
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border-card);
+    }
+    .lens-crit-list li:last-child { border-bottom: none; }
+    .lens-pf {
+      font-family: "Space Mono", monospace;
+      font-size: 11px;
+      font-weight: 700;
+      margin-right: 8px;
+    }
+    .lens-pf.pass { color: var(--green); }
+    .lens-pf.fail { color: var(--red); }
+    .lens-crit-detail { color: var(--text-secondary); font-weight: 400; }
+    .lens-meta {
+      font-size: 12px;
+      line-height: 1.65;
+      color: var(--text-secondary);
+      margin: 0;
+    }
+    .lenses-intro {
+      font-size: 14px;
+      line-height: 1.8;
+      color: var(--body-dim);
+      margin: 0 0 18px 0;
+      max-width: 900px;
+    }
+    .lens-deep {
+      border: 1px solid var(--border-card);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin-bottom: 18px;
+      background: rgba(255, 255, 255, 0.025);
+    }
+    .lens-prose-long {
+      font-size: 13px;
+      line-height: 1.92;
+      color: var(--body-dim);
+      margin: 0 0 14px 0;
+    }
+    .lens-blend-eq {
+      font-family: "Space Mono", ui-monospace, monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      background: rgba(0, 0, 0, 0.28);
+      padding: 12px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border-card);
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .lens-driver-list {
+      margin: 0 0 0 1.1em;
+      padding: 0;
+      color: var(--body-dim);
+      font-size: 13px;
+      line-height: 1.8;
+    }
+    .lens-driver-list li { margin: 6px 0; }
+    .lens-verdict {
+      font-size: 13px;
+      line-height: 1.85;
+      color: var(--text);
+      margin: 0;
+      padding: 14px 16px;
+      background: rgba(201, 168, 76, 0.08);
+      border-left: 3px solid var(--gold);
+      border-radius: 0 8px 8px 0;
+    }
+    .lens-verdict-warn {
+      background: rgba(231, 76, 60, 0.09);
+      border-left-color: var(--red);
+    }
+    .lens-digest {
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--text-secondary);
+      margin: 0 0 12px 0;
+      padding: 10px 12px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 6px;
+    }
+    .lens-digest-fail { color: var(--red); font-weight: 600; }
+    .lens-rerun-hint {
+      font-size: 13px;
+      line-height: 1.65;
+      color: var(--text-secondary);
+      padding: 14px 16px;
+      border-radius: 8px;
+      border: 1px dashed var(--border-hover);
+      margin-bottom: 12px;
+    }
 
     .empty-card {
       padding: 40px;
@@ -518,13 +666,215 @@ function confidenceLabel(c) {
 
 /* Narrative array from API is Buffett, Ackman, Wood, Burry, Institutional; Pelosi is score-only */
 const LENS_ORDER = [
-  { key: "buffett", label: "Buffett", color: "#4A90A4", reasoningIndex: 0 },
-  { key: "ackman", label: "Ackman", color: "#9B59B6", reasoningIndex: 1 },
-  { key: "wood", label: "Wood", color: "#E67E22", reasoningIndex: 2 },
-  { key: "burry", label: "Burry", color: "#E74C3C", reasoningIndex: 3 },
-  { key: "pelosi_proxy", label: "Pelosi proxy", color: "#27AE60", reasoningIndex: -1 },
-  { key: "institutional", label: "Institutional", color: "#7F8C8D", reasoningIndex: 4 },
+  {
+    key: "buffett",
+    label: "Buffett",
+    color: "#4A90A4",
+    reasoningIndex: 0,
+    tagline: "Economic moat, owner-earnings mindset, and balance-sheet prudence using 10-K fundamentals.",
+  },
+  {
+    key: "ackman",
+    label: "Ackman",
+    color: "#9B59B6",
+    reasoningIndex: 1,
+    tagline: "High-conviction quality: operating leverage, returns, and sustainable cash economics.",
+  },
+  {
+    key: "wood",
+    label: "Wood",
+    color: "#E67E22",
+    reasoningIndex: 2,
+    tagline: "Growth and innovation tilt: revenue trajectory, reinvestment, and margin structure.",
+  },
+  {
+    key: "burry",
+    label: "Burry",
+    color: "#E74C3C",
+    reasoningIndex: 3,
+    tagline: "Contrarian value & resilience: liquidity, leverage limits, and valuation discipline.",
+  },
+  {
+    key: "pelosi_proxy",
+    label: "Pelosi proxy",
+    color: "#27AE60",
+    reasoningIndex: -1,
+    tagline: "Disclosure-style positioning overlay—low weight; curiosity signal, not a core thesis.",
+  },
+  {
+    key: "institutional",
+    label: "Institutional",
+    color: "#7F8C8D",
+    reasoningIndex: 4,
+    tagline: "Scale, liquidity, and mandate-friendly profile for large allocator constraints.",
+  },
 ];
+
+function fmtLensNum(v, digits) {
+  if (v === null || v === undefined) return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return n.toFixed(digits);
+}
+
+function buildDetailedLensCard(L, ps, checklist, contributions, weights, reasoningLines, finalScore, elaborationByLens) {
+  const key = L.key;
+  const E = elaborationByLens && elaborationByLens[key] ? elaborationByLens[key] : null;
+  const raw = ps[key];
+  const w = weights && weights[key] != null ? Number(weights[key]) : null;
+  const contrib = contributions && contributions[key] != null ? Number(contributions[key]) : null;
+  const fs = Number(finalScore);
+  const pctOfFinal =
+    fs > 0 && contrib != null && Number.isFinite(contrib) ? (contrib / fs) * 100 : null;
+
+  let narrative = "";
+  if (L.reasoningIndex >= 0 && reasoningLines[L.reasoningIndex]) {
+    narrative = reasoningLines[L.reasoningIndex];
+  } else if (key === "pelosi_proxy") {
+    narrative =
+      "This lens applies a lightweight heuristic inspired by public trade-disclosure patterns. It carries a small fixed weight in the blended score and does not use the same pass/fail checklist as fundamental lenses. Treat it as secondary context next to filing-based Buffett / Ackman / Wood / Burry / Institutional signals.";
+  } else {
+    const sc = ps[key];
+    narrative =
+      "No filing-linked narrative string was returned for " +
+      L.label +
+      " in this payload. Raw lens score: " +
+      (sc != null && Number.isFinite(Number(sc)) ? Number(sc).toFixed(2) : "—") +
+      ". Run a fresh full analysis to regenerate persona commentary.";
+  }
+
+  const ck = checklist || {};
+  const items = key === "pelosi_proxy" ? [] : ck[key] || [];
+
+  let digestHtml = "";
+  if (E && E.checklist_digest && items.length) {
+    const dg = E.checklist_digest;
+    digestHtml =
+      '<div class="lens-digest">Gate tally: <strong>' +
+      esc(String(dg.pass_count)) +
+      "</strong> pass, <strong>" +
+      esc(String(dg.fail_count)) +
+      "</strong> fail." +
+      (dg.failed_criteria && dg.failed_criteria.length
+        ? ' Pressure points: <span class="lens-digest-fail">' + esc(dg.failed_criteria.join("; ")) + "</span>."
+        : "") +
+      "</div>";
+  }
+
+  let criteriaBlock = "";
+  if (items.length) {
+    criteriaBlock =
+      '<div class="lens-section"><p class="lens-section-title">Pass / fail vs thresholds (latest filing metrics)</p>' +
+      digestHtml +
+      '<ul class="lens-crit-list">';
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const ok = it.pass;
+      criteriaBlock +=
+        '<li><span class="lens-pf ' +
+        (ok ? "pass" : "fail") +
+        '">' +
+        (ok ? "PASS" : "FAIL") +
+        "</span><strong>" +
+        esc(it.criterion) +
+        '</strong><span class="lens-crit-detail"> — observed <span class="font-mono">' +
+        esc(fmtLensNum(it.actual, 2)) +
+        "</span>, requires " +
+        esc(it.comparator || "—") +
+        ' <span class="font-mono">' +
+        esc(fmtLensNum(it.threshold, 2)) +
+        "</span></span></li>";
+    }
+    criteriaBlock += "</ul></div>";
+  } else {
+    criteriaBlock =
+      '<div class="lens-section"><p class="lens-section-title">Pass / fail vs thresholds (latest filing metrics)</p><p class="lens-meta">' +
+      (key === "pelosi_proxy"
+        ? "No checklist rows: this lens only contributes its weighted score to the final blend."
+        : "No criteria rows were returned for this lens.") +
+      "</p></div>";
+  }
+
+  const statsRow =
+    '<div class="lens-stats">' +
+    '<div class="lens-stat"><span class="lens-stat-lbl">Lens score (0–100)</span><span class="lens-stat-val font-mono">' +
+    fmtLensNum(raw, 2) +
+    "</span></div>" +
+    '<div class="lens-stat"><span class="lens-stat-lbl">Blend weight</span><span class="lens-stat-val font-mono">' +
+    (w != null && Number.isFinite(w) ? (w * 100).toFixed(1) + "%" : "—") +
+    "</span></div>" +
+    '<div class="lens-stat"><span class="lens-stat-lbl">Weighted points</span><span class="lens-stat-val font-mono">' +
+    (contrib != null && Number.isFinite(contrib) ? fmtLensNum(contrib, 2) + " pts" : "—") +
+    "</span></div>" +
+    '<div class="lens-stat"><span class="lens-stat-lbl">Share of final</span><span class="lens-stat-val font-mono">' +
+    (pctOfFinal != null && Number.isFinite(pctOfFinal) ? pctOfFinal.toFixed(1) + "%" : "—") +
+    "</span></div>" +
+    "</div>";
+
+  let deepDive = "";
+  if (E) {
+    const drivers = (E.driver_lines || []).map((line) => "<li>" + esc(line) + "</li>").join("");
+    const kw = E.keyword_note
+      ? '<div class="lens-section"><p class="lens-section-title">Filing text cross-read</p><p class="lens-prose-long">' +
+        esc(E.keyword_note) +
+        "</p></div>"
+      : "";
+    const fails = E.checklist_digest && E.checklist_digest.fail_count > 0 && items.length;
+    const verdictCls = fails ? "lens-verdict lens-verdict-warn" : "lens-verdict";
+    deepDive =
+      '<div class="lens-deep">' +
+      '<div class="lens-section"><p class="lens-section-title">Investment read (what this lens judges)</p><p class="lens-prose-long">' +
+      esc(E.measures || "") +
+      "</p></div>" +
+      '<div class="lens-section"><p class="lens-section-title">Scoring mechanics (matches engine code)</p><p class="lens-prose-long">' +
+      esc(E.formula || "") +
+      "</p></div>" +
+      '<div class="lens-section"><p class="lens-section-title">Blend arithmetic</p><pre class="lens-blend-eq">' +
+      esc(E.blend_equation || "") +
+      "</pre></div>" +
+      (drivers
+        ? '<div class="lens-section"><p class="lens-section-title">Line-by-line drivers (latest period)</p><ol class="lens-driver-list">' +
+          drivers +
+          "</ol></div>"
+        : "") +
+      '<div class="lens-section"><p class="lens-section-title">Checklist narrative</p><p class="' +
+      verdictCls +
+      '">' +
+      esc(E.checklist_verdict || "") +
+      "</p></div>" +
+      '<div class="lens-section"><p class="lens-section-title">Multi-year arc (10-K trend strip)</p><p class="lens-prose-long">' +
+      esc(E.trend_paragraph || "") +
+      "</p></div>" +
+      kw +
+      "</div>";
+  } else {
+    deepDive =
+      '<div class="lens-rerun-hint">Expanded lens dossier is not stored on this recommendation row yet. Run <strong>Full Analysis</strong> once to generate long-form briefs (drivers, multi-year copy, filing keyword cross-reads).</div>';
+  }
+
+  return (
+    '<article class="lens-card lens-card-detail" style="border-left-color:' +
+    L.color +
+    '">' +
+    '<header class="lens-head">' +
+    '<div class="lname" style="color:' +
+    L.color +
+    '">' +
+    esc(L.label) +
+    "</div>" +
+    '<p class="lens-tagline">' +
+    esc(L.tagline) +
+    "</p>" +
+    "</header>" +
+    statsRow +
+    deepDive +
+    '<div class="lens-section"><p class="lens-section-title">Engine voice (compact snapshot)</p><p class="lens-narrative">' +
+    esc(narrative) +
+    "</p></div>" +
+    criteriaBlock +
+    "</article>"
+  );
+}
 
 function setStatusRunning(on) {
   document.getElementById("statusTrack").classList.toggle("running", on);
@@ -772,42 +1122,21 @@ function buildCard(item) {
       .join("") +
     "</ul>";
 
-  const reasoningLines = personaReasoning.length
-    ? personaReasoning
-    : [];
+  const reasoningLines = personaReasoning.length ? personaReasoning : [];
 
-  const lensCards = LENS_ORDER.map((L) => {
-    let line = "";
-    if (L.reasoningIndex >= 0 && reasoningLines[L.reasoningIndex]) {
-      line = reasoningLines[L.reasoningIndex];
-    } else if (L.key === "pelosi_proxy") {
-      const sc = ps.pelosi_proxy;
-      line =
-        "Pelosi proxy lens — score " +
-        (sc != null ? Number(sc).toFixed(1) : "N/A") +
-        " (flow / positioning proxy; narrative packs with full run).";
-    } else {
-      const sc = ps[L.key];
-      line =
-        L.label +
-        " lens — score " +
-        (sc != null ? Number(sc).toFixed(1) : "N/A") +
-        (reasoningLines.length ? " — no line in this payload." : " (awaiting narrative on next run).");
-    }
-    return (
-      '<div class="lens-card" style="border-left-color:' +
-      L.color +
-      '">' +
-      '<div class="lname" style="color:' +
-      L.color +
-      '">' +
-      esc(L.label) +
-      "</div>" +
-      '<div class="ltext">' +
-      esc(line) +
-      "</div></div>"
-    );
-  }).join("");
+  const elaborationByLens = (d.thesis && d.thesis.persona_lens_elaboration) || {};
+  const lensCards = LENS_ORDER.map((L) =>
+    buildDetailedLensCard(
+      L,
+      ps,
+      checklist,
+      contributions,
+      weights,
+      reasoningLines,
+      item.final_score,
+      elaborationByLens
+    )
+  ).join("");
 
   const invNews = d.investor_news || [];
   let newsBlock = "";
@@ -897,6 +1226,7 @@ function buildCard(item) {
   const tabLenses =
     '<div class="meridian-tab-panel" data-tab="lenses" role="tabpanel">' +
     '<p class="sec-label">Multi-lens view</p>' +
+    '<p class="lenses-intro">Each lens is a full <strong>dossier</strong>: investment intent, exact <strong>formula</strong> as implemented in code, <strong>blend math</strong>, <strong>metric drivers</strong> for the latest period, <strong>checklist narrative</strong>, a <strong>multi-year filing arc</strong>, optional <strong>10-K keyword cross-reads</strong>, the engine’s one-line <strong>voice</strong>, and the full <strong>pass/fail grid</strong>. Re-run analysis if briefs are missing (older recommendations pre-date the dossier).</p>' +
     '<div class="lens-grid">' +
     lensCards +
     "</div></div>";
