@@ -14,7 +14,7 @@ from app.ingestion.sec_filings import (
     fetch_financial_metrics_last_3y,
     fetch_last_3y_10k_urls,
 )
-from app.market.quotes import fetch_live_quote
+from app.market.quotes import fetch_live_quote, quote_debug_status
 from app.models import Company, ContextSignal, CriticalAlert, Filing, FinancialMetric, PersonaScore, Recommendation
 from app.recommendations.engine import run_recommendation_for_company
 from app.risk.critical_events import apply_critical_risk_gate, update_alert_workflow
@@ -29,6 +29,9 @@ _active_sessions: set[str] = set()
 def _is_auth_path(path: str) -> bool:
     open_paths = {"/login", "/logout"}
     if path in open_paths:
+        return True
+    # Liveness / quote diagnostics (no secrets; helps verify Railway env keys and outbound HTTP).
+    if path.startswith("/health/"):
         return True
     if path.startswith("/docs") or path.startswith("/openapi") or path.startswith("/redoc"):
         return False
@@ -361,6 +364,15 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
 @app.get("/health/freshness")
 def health_freshness():
     return {"status": "ok", "schedules": run_periodic_jobs()}
+
+
+@app.get("/health/quote")
+def health_quote(ticker: str = Query(default="AAPL")):
+    """
+    Shows which quote providers are configured and which first succeeds for `ticker`.
+    Open without login so you can verify FINNHUB_API_KEY etc. on Railway.
+    """
+    return quote_debug_status(ticker)
 
 
 @app.get("/alerts/critical")

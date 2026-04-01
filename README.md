@@ -30,7 +30,7 @@ This is a runnable AI investment analyst product that:
 
 ## Notes
 
-- Live **stock prices** on the dashboard are fetched from Yahoo Finance chart data (context only; not for order execution).
+- Live **stock prices** are best-effort: Finnhub (if `FINNHUB_API_KEY`), Yahoo, yfinance, Stooq, Twelve Data, Alpha Vantage (context only; not for order execution). Use `/health/quote` to debug providers on deploy.
 - Forward-looking narrative is **illustrative** and stored with each recommendation after analysis runs; it is not a price target or guarantee.
 - Uses SQLite by default (`backend/investment_analyst.db`).
 - Endpoints are still available at `http://127.0.0.1:8000/docs`.
@@ -56,3 +56,14 @@ After deploy, open:
 Use:
 - username: `admin`
 - password: your `AUTH_PASSWORD`
+
+## Cloud deploy (Railway)
+
+1. Connect the GitHub repo and deploy. Either:
+   - Set the service **Root Directory** to `backend` and start with `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, **or**
+   - Keep repo root as root and use the repo-root `railway.toml` (build/start already `cd backend && …`).
+2. Add a **Postgres** plugin and set `DATABASE_URL` on the web service (SQLAlchemy style `postgresql+psycopg2://…` is fine).
+3. Set `SEC_USER_AGENT`, `AUTH_PASSWORD`, and **`FINNHUB_API_KEY`** (quotes often fail from cloud IPs without it).
+4. After deploy, open `https://<your-railway-url>/health/quote?ticker=AAPL` (no login) to see which quote provider succeeded.
+
+For a ready-made message to paste into Railway’s AI assistant, see **`RAILWAY_AI_AGENT_PROMPT.txt`** in the repo root.

@@ -1,0 +1,12 @@
+# Railway config-as-code (repo root).
+# Ensures build/start run from `backend/` when the service root is the Git repo root.
+# If you instead set Service → Settings → Root Directory = `backend`, you can delete
+# the `cd backend &&` prefixes and use: pip install -r requirements.txt
+
+[build]
+builder = "nixpacks"
+buildCommand = "cd backend && pip install -r requirements.txt"
+
+[deploy]
+startCommand = "cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+restartPolicyType = "ON_FAILURE"

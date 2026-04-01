@@ -1,0 +1,45 @@
+Copy everything below the line into Railway’s AI / support chat (or any deploy assistant).
+
+---BEGIN PROMPT---
+
+You are helping deploy and debug a Python FastAPI app called “AI Investment Analyst” on Railway.
+
+REPOSITORY LAYOUT
+- Monorepo: Python app lives under folder `backend/` (not the repo root).
+- Entrypoint: `uvicorn app.main:app --host 0.0.0.0 --port $PORT` with working directory = `backend` (PYTHONPATH must resolve `app` as `backend/app`).
+- Dependencies: `backend/requirements.txt` (includes FastAPI, SQLAlchemy, yfinance, requests, etc.).
+- Repo root may contain `railway.toml` with:
+  - buildCommand: `cd backend && pip install -r requirements.txt`
+  - startCommand: `cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+ALTERNATIVE (cleaner on Railway)
+- Set the service “Root Directory” to `backend` in Railway UI, then:
+  - Build: `pip install -r requirements.txt`
+  - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+DATABASE
+- Production expects Postgres. Set `DATABASE_URL` to the Railway Postgres plugin connection string.
+- SQLAlchemy URL style used in code: `postgresql+psycopg2://...` (psycopg2-binary in requirements).
+
+REQUIRED / IMPORTANT ENV VARS
+- `DATABASE_URL` — Postgres (required for production).
+- `SEC_USER_AGENT` — descriptive string with contact email (SEC EDGAR requirement). Example: `MyApp/1.0 me@domain.com`
+- `AUTH_PASSWORD` — override default password; optionally `AUTH_USERNAME`.
+- `FINNHUB_API_KEY` — strongly recommended; Yahoo raw HTTP is often blocked from cloud/datacenter IPs, so live quotes fail without a market data API key.
+- Optional quote fallbacks: `TWELVE_DATA_API_KEY`, `ALPHAVANTAGE_API_KEY` (low free-tier limits).
+
+HEALTH / DEBUG ENDPOINTS (no auth)
+- `GET /health/freshness` — basic OK + scheduler state.
+- `GET /health/quote?ticker=AAPL` — shows which quote providers are “configured” (API key present) and which HTTP provider first returns a price. Use this to verify outbound HTTPS + API keys on Railway.
+
+KNOWN SYMPTOMS
+1) “Live stock prices not showing” — usually: no `FINNHUB_API_KEY`, or outbound requests to Yahoo/Stooq blocked, or invalid Finnhub token. Fix: set `FINNHUB_API_KEY`, redeploy, hit `/health/quote?ticker=AAPL` and read `attempts` + `winner`.
+2) “Analyzed 0 companies” — DB/session or SEC issues; check app logs for pipeline errors; ensure `DATABASE_URL` writable and `SEC_USER_AGENT` set.
+
+WHAT I NEED FROM YOU (Railway AI)
+1. Confirm whether the service Root Directory should be repo root or `backend`, and align build/start commands with `railway.toml` or UI settings.
+2. Confirm `PORT` binding: process must listen on `0.0.0.0:$PORT`.
+3. If `/health/quote` shows all providers failing, suggest checks: deploy logs, outbound network, correct env var names (`FINNHUB_API_KEY`), and Finnhub dashboard for key validity/rate limits.
+4. List any Railway-specific limits (eg. ephemeral filesystem, cold starts) that would affect SQLite vs Postgres.
+
+---END PROMPT---

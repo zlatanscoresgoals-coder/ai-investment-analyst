@@ -1,4 +1,4 @@
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,7 +18,20 @@ class Settings(BaseSettings):
     auth_password: str = "GoatAnalyst99"
     auth_session_cookie: str = "aiia_session"
     # Optional: reliable quotes on cloud hosts (Yahoo often blocks datacenters).
-    finnhub_api_key: str = Field(default="", validation_alias="FINNHUB_API_KEY")
+    finnhub_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("FINNHUB_API_KEY", "finnhub_api_key", "FinnhubApiKey"),
+    )
+    # Optional fallback: https://www.alphavantage.co/support/#api-key
+    alphavantage_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("ALPHAVANTAGE_API_KEY", "alphavantage_api_key", "ALPHA_VANTAGE_API_KEY"),
+    )
+    # Optional: https://twelvedata.com/ (800 calls/day free)
+    twelve_data_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("TWELVE_DATA_API_KEY", "twelve_data_api_key", "TWELVEDATA_API_KEY"),
+    )
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

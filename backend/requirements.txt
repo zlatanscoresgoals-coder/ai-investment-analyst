@@ -8,5 +8,6 @@ psycopg2-binary
 alembic
 requests
 httpx
+yfinance>=0.2.40
 apscheduler
 python-multipart
