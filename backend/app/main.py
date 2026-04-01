@@ -1,5 +1,7 @@
 from datetime import datetime
+from pathlib import Path
 import secrets
+from typing import Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -15,15 +17,25 @@ from app.ingestion.sec_filings import (
     fetch_last_3y_10k_urls,
 )
 from app.market.quotes import fetch_live_quote, quote_debug_status
-from app.models import Company, ContextSignal, Filing, FinancialMetric, PersonaScore, Recommendation
+from app.models import Company, ContextSignal, CriticalAlert, Filing, FinancialMetric, PersonaScore, Recommendation
 from app.news.investor_news import fetch_investor_news
 from app.recommendations.engine import run_recommendation_for_company
+from app.risk.critical_events import is_actionable_critical_alert
 from app.schemas import GenericMessage, InvestorNewsItem, RecommendationDetailOut, RecommendationOut
 from app.tasks.scheduler import execute_full_pipeline, run_periodic_jobs, start_scheduler, stop_scheduler
 
 app = FastAPI(title="AI Investment Analyst API", version="0.1.0")
 Base.metadata.create_all(bind=engine)
 _active_sessions: set[str] = set()
+_dashboard_html_cache: Optional[str] = None
+
+
+def _load_dashboard_html(last_run_display: str) -> str:
+    global _dashboard_html_cache
+    if _dashboard_html_cache is None:
+        path = Path(__file__).resolve().parent / "meridian_dashboard.html"
+        _dashboard_html_cache = path.read_text(encoding="utf-8")
+    return _dashboard_html_cache.replace("__LAST_RUN__", last_run_display)
 
 
 def _is_auth_path(path: str) -> bool:
@@ -78,9 +90,26 @@ def on_shutdown():
     stop_scheduler()
 
 
-@app.get("/", response_model=GenericMessage)
-def root() -> GenericMessage:
-    return GenericMessage(message="AI Investment Analyst backend is running. Open /dashboard for UI.")
+@app.get("/")
+def root():
+    """
+    Never return JSON here — browsers opening the bare service URL should land in the UI.
+    (302 + HTML fallback for odd clients.) API health: GET /health/freshness
+    """
+    return HTMLResponse(
+        """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="refresh" content="0;url=/dashboard" />
+  <title>MERIDIAN</title>
+  <script>location.replace("/dashboard");</script>
+</head>
+<body style="margin:0;background:#07090D;color:#6A7080;font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;">
+  <p>Opening <a href="/dashboard" style="color:#C9A84C">dashboard</a>…</p>
+</body>
+</html>"""
+    )
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -88,27 +117,46 @@ def login_page():
     return HTMLResponse(
         """
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Login | AI Investment Analyst</title>
+  <title>Sign in | MERIDIAN</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=Playfair+Display:wght@600&display=swap" rel="stylesheet" />
   <style>
-    body { background:#0b1220; color:#e6edf7; font-family:Arial,sans-serif; display:flex; justify-content:center; align-items:center; min-height:100vh; margin:0; }
-    .card { width:340px; background:#111a2e; border:1px solid #24324e; border-radius:12px; padding:18px; }
-    h2 { margin-top:0; }
-    input { width:100%; margin-top:8px; margin-bottom:12px; padding:10px; border-radius:8px; border:1px solid #24324e; background:#18233b; color:#e6edf7; }
-    button { width:100%; padding:10px; border:none; border-radius:8px; background:#2d7df6; color:white; font-weight:700; cursor:pointer; }
-    .err { color:#ef4444; font-size:13px; min-height:18px; }
+    body {
+      margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+      background:#07090D; color:#E8E3DA; font-family:"DM Sans",system-ui,sans-serif;
+    }
+    .card {
+      width:360px; padding:28px; border-radius:10px;
+      background:#0C1118; border:1px solid rgba(255,255,255,0.08);
+    }
+    .brand { font-family:"Playfair Display",Georgia,serif; font-size:20px; letter-spacing:0.25em; color:#C9A84C; margin:0; }
+    .sub { font-size:9px; text-transform:uppercase; letter-spacing:0.2em; color:#2A3848; margin:6px 0 20px; }
+    label { font-size:10px; text-transform:uppercase; letter-spacing:0.15em; color:#6A7080; }
+    input {
+      width:100%; box-sizing:border-box; margin-top:6px; margin-bottom:14px; padding:12px;
+      border-radius:8px; border:1px solid rgba(255,255,255,0.08); background:rgba(0,0,0,0.25); color:#E8E3DA;
+    }
+    button {
+      width:100%; padding:12px; border:none; border-radius:8px; cursor:pointer; font-weight:700;
+      background:#C9A84C; color:#07090D; font-family:"DM Sans",sans-serif;
+    }
+    button:hover { filter:brightness(1.06); }
   </style>
 </head>
 <body>
   <form class="card" method="post" action="/login">
-    <h2>AI Investment Analyst</h2>
-    <div>Sign in</div>
-    <input name="username" placeholder="Username" required />
-    <input name="password" type="password" placeholder="Password" required />
-    <button type="submit">Login</button>
+    <h1 class="brand">MERIDIAN</h1>
+    <div class="sub">AI Investment Intelligence</div>
+    <label for="u">Username</label>
+    <input id="u" name="username" autocomplete="username" required />
+    <label for="p">Password</label>
+    <input id="p" name="password" type="password" autocomplete="current-password" required />
+    <button type="submit">Sign in</button>
   </form>
 </body>
 </html>
@@ -341,6 +389,9 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
 
     return RecommendationDetailOut(
         ticker=company.ticker,
+        company_name=company.name,
+        sector=company.sector,
+        industry=company.industry,
         status=rec.status,
         final_score=rec.final_score,
         summary=rec.summary,
@@ -404,6 +455,48 @@ def health_features():
     }
 
 
+@app.get("/alerts/critical")
+def list_critical_alerts(
+    limit: int = Query(default=25, ge=1, le=200),
+    include_cleared: bool = Query(
+        default=False,
+        description="If true, include alerts moved to unblocked.",
+    ),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(CriticalAlert, Company)
+        .join(Company, Company.id == CriticalAlert.company_id)
+        .order_by(CriticalAlert.as_of.desc())
+        .limit(limit * 3 if not include_cleared else limit)
+        .all()
+    )
+    out: list[dict] = []
+    for alert, company in rows:
+        ws = (alert.details_json or {}).get("workflow_status", "blocked")
+        if not include_cleared and ws == "unblocked":
+            continue
+        if not include_cleared and ws == "blocked" and not is_actionable_critical_alert(alert):
+            continue
+        out.append(
+            {
+                "ticker": company.ticker,
+                "company_name": company.name,
+                "as_of": alert.as_of,
+                "event_type": alert.event_type,
+                "severity": alert.severity,
+                "source": alert.source,
+                "headline": alert.headline,
+                "url": alert.url,
+                "confidence": (alert.details_json or {}).get("confidence", "unknown"),
+                "workflow_status": ws,
+            }
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
 @app.get("/portfolio/impact")
 def portfolio_impact(db: Session = Depends(get_db)):
     blocked_rows = (
@@ -431,269 +524,12 @@ def portfolio_impact(db: Session = Depends(get_db)):
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard(db: Session = Depends(get_db)):
     last_run = db.query(Recommendation).order_by(Recommendation.as_of.desc()).first()
-    last_run_display = last_run.as_of.isoformat() if last_run else "Never"
-    return HTMLResponse(
-        f"""
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI Investment Analyst Dashboard</title>
-  <style>
-    :root {{
-      --bg: #0b1220;
-      --panel: #111a2e;
-      --panel-2: #18233b;
-      --text: #e6edf7;
-      --muted: #9fb0cc;
-      --border: #24324e;
-      --good: #22c55e;
-      --bad: #ef4444;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Arial, sans-serif;
-      background: linear-gradient(180deg, #0b1220 0%, #0a0f1d 100%);
-      color: var(--text);
-    }}
-    .wrap {{ max-width: 1260px; margin: 0 auto; padding: 24px; }}
-    .topbar {{
-      display: flex; justify-content: space-between; align-items: center;
-      gap: 12px; margin-bottom: 16px;
-      background: rgba(17, 26, 46, 0.8); border: 1px solid var(--border);
-      border-radius: 14px; padding: 14px 16px;
-    }}
-    h1 {{ margin: 0; font-size: 22px; }}
-    .subtle {{ color: var(--muted); font-size: 13px; }}
-    .actions {{ display: flex; gap: 8px; flex-wrap: wrap; }}
-    button {{
-      padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border);
-      background: var(--panel-2); color: var(--text); cursor: pointer; font-weight: 600;
-    }}
-    button.primary {{ background: linear-gradient(90deg, #2d7df6, #4da3ff); border: none; color: #fff; }}
-    #status {{
-      margin: 14px 0 18px 0; padding: 12px 14px; border-radius: 12px;
-      background: var(--panel); border: 1px solid var(--border); color: var(--muted);
-      white-space: pre-wrap; font-size: 13px;
-    }}
-    #recs {{ display: grid; grid-template-columns: 1fr; gap: 14px; }}
-    .card {{
-      background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px;
-      box-shadow: 0 6px 28px rgba(0,0,0,0.25);
-    }}
-    .header {{ display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }}
-    .ticker {{ font-size: 20px; font-weight: 700; }}
-    .score {{ font-size: 26px; font-weight: 800; color: #90caf9; }}
-    .meta {{ color: var(--muted); font-size: 12px; margin-top: 4px; }}
-    .grid {{ display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; margin-top: 12px; }}
-    .panel {{
-      background: rgba(24,35,59,0.6); border: 1px solid var(--border); border-radius: 10px; padding: 12px;
-    }}
-    .panel h3 {{ margin: 0 0 8px 0; font-size: 14px; color: #dbe7ff; }}
-    ul {{ margin: 8px 0 0 18px; padding: 0; }}
-    li {{ margin: 5px 0; color: #d5def0; font-size: 13px; }}
-    .badge {{
-      display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px;
-      border: 1px solid var(--border); color: var(--muted);
-    }}
-    .pass {{ color: var(--good); }}
-    .fail {{ color: var(--bad); }}
-    .kpi {{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }}
-    .kpi .chip {{ background: #15233c; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 12px; }}
-    .mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
-    @media (max-width: 900px) {{
-      .grid {{ grid-template-columns: 1fr; }}
-    }}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="topbar">
-      <div>
-        <h1>AI Investment Analyst</h1>
-        <div class="subtle">Institutional-style research dashboard | Last run: <span id="lastRun">{last_run_display}</span></div>
-      </div>
-      <div class="actions">
-        <button class="primary" onclick="runFull()">Run Full Analysis</button>
-        <button onclick="loadRecs()">Refresh</button>
-        <button onclick="window.location='/logout'">Logout</button>
-      </div>
-    </div>
-    <div id="status">Status: idle</div>
-    <div id="recs"></div>
-  </div>
-<script>
-async function runFull() {{
-  document.getElementById('status').textContent = "Status: running full pipeline...";
-  const res = await fetch('/run/full', {{ method: 'POST' }});
-  const data = await res.json();
-  let line = "Status: " + data.message;
-  if (data.failures && data.failures.length) {{
-    line += "\\n\\nPer-ticker errors (see Railway logs for full trace):\\n" + data.failures.slice(0, 8).join("\\n");
-  }}
-  document.getElementById('status').textContent = line;
-  await loadRecs();
-}}
-async function loadRecs() {{
-  const [recRes, watchRes] = await Promise.all([
-    fetch('/recommendations?status=recommended'),
-    fetch('/recommendations?status=watchlist'),
-  ]);
-  const recommended = await recRes.json();
-  const watchlist = await watchRes.json();
-  const byTicker = new Map();
-  for (const r of [...recommended, ...watchlist]) {{
-    const cur = byTicker.get(r.ticker);
-    if (!cur) {{
-      byTicker.set(r.ticker, r);
-      continue;
-    }}
-    if (cur.status !== 'recommended' && r.status === 'recommended') {{
-      byTicker.set(r.ticker, r);
-    }} else if (Number(r.final_score) > Number(cur.final_score)) {{
-      byTicker.set(r.ticker, r);
-    }}
-  }}
-  const data = Array.from(byTicker.values()).sort((a, b) => Number(b.final_score) - Number(a.final_score));
-  const target = document.getElementById('recs');
-  if (!data.length) {{
-    target.innerHTML = '<div class="card">No recommendations or watchlist rows yet. Click "Run Full Analysis".</div>';
-    return;
-  }}
-  const detailed = await Promise.all(data.map(async (r) => {{
-    const dr = await fetch(`/recommendations/${{r.ticker}}`);
-    const detail = await dr.json();
-    return {{ ...r, detail }};
-  }}));
-  target.innerHTML = detailed.map(item => {{
-    const d = item.detail || {{}};
-    const whyNow = (d.thesis && d.thesis.why_now) ? d.thesis.why_now : [];
-    const personaReasoning = (d.thesis && d.thesis.persona_reasoning) ? d.thesis.persona_reasoning : [];
-    const filingWords = (d.thesis && d.thesis.filing_word_search) ? d.thesis.filing_word_search : {{}};
-    const keyFinancials = (d.thesis && d.thesis.key_financials) ? d.thesis.key_financials : {{}};
-    const checklist = (d.thesis && d.thesis.persona_checklist) ? d.thesis.persona_checklist : {{}};
-    const contributions = (d.thesis && d.thesis.score_contribution) ? d.thesis.score_contribution : {{}};
-    const weights = (d.thesis && d.thesis.score_weights) ? d.thesis.score_weights : {{}};
-    const trends = (d.thesis && d.thesis.three_year_trends) ? d.thesis.three_year_trends : [];
-    const risks = (d.risks && d.risks.key_risks) ? d.risks.key_risks : [];
-    const filingYears = d.filing_years_analyzed || [];
-    const context = d.context || {{}};
-    const fmt = (v, digits=2) => (v === null || v === undefined) ? 'N/A' : (typeof v === 'number' ? v.toFixed(digits) : v);
-    const compactMoney = (v) => {{
-      if (v === null || v === undefined) return 'N/A';
-      const n = Number(v);
-      if (!Number.isFinite(n)) return 'N/A';
-      const abs = Math.abs(n);
-      if (abs >= 1_000_000_000) return `${{(n/1_000_000_000).toFixed(2)}} billion`;
-      if (abs >= 1_000_000) return `${{(n/1_000_000).toFixed(2)}} million`;
-      return n.toFixed(2);
-    }};
-    const pct = (v) => (v === null || v === undefined) ? 'N/A' : `${{Number(v).toFixed(2)}}%`;
-    const checklistHtml = Object.entries(checklist).map(([lens, items]) => `
-      <div><b>${{lens}}</b></div>
-      <ul>${{(items || []).map(i => `<li><span class="${{i.pass ? 'pass' : 'fail'}}">${{i.pass ? 'PASS' : 'FAIL'}}</span> - ${{i.criterion}} with actual <span class="mono">${{fmt(i.actual)}}</span> compared to threshold <span class="mono">${{i.comparator}} ${{fmt(i.threshold)}}</span>.</li>`).join('')}}</ul>
-    `).join('');
-    const contributionHtml = Object.entries(contributions).map(([k,v]) => `<li><b>${{k}}</b> contributes <span class="mono">${{fmt(v)}}</span> weighted points (weight <span class="mono">${{fmt(weights[k], 2)}}</span>).</li>`).join('');
-    const trendHtml = trends.map(t => `<li>FY${{t.fiscal_year}}: Revenue <b>${{compactMoney(t.revenue)}}</b>, Gross margin <b>${{pct(t.gross_margin)}}</b>, Operating margin <b>${{pct(t.operating_margin)}}</b>, ROE <b>${{pct(t.roe)}}</b>, FCF <b>${{compactMoney(t.fcf)}}</b>, Debt/EBITDA <b>${{fmt(t.debt_to_ebitda)}}</b>, Current ratio <b>${{fmt(t.current_ratio)}}</b>.</li>`).join('');
-    const stLabel = item.status === 'recommended' ? 'recommended' : (item.status === 'watchlist' ? 'on the watchlist' : String(item.status || 'listed'));
-    const summaryText = 'This name is ' + stLabel + ' with a blended score of ' + item.final_score.toFixed(2) + '. Under the Buffett lens, quality and cash generation remain supportive; Ackman-style quality metrics and operating profile are constructive. The Wood lens focuses on growth trajectory and margin structure, while the Burry lens checks balance-sheet resilience and valuation discipline. Institutional suitability is evaluated through liquidity and scale assumptions.';
-    const invNews = d.investor_news || [];
-    let newsUl = '';
-    for (const n of invNews) {{
-      const t = String(n.title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
-      const u = String(n.url || '#').replace(/"/g,'&quot;').replace(/'/g, '&#39;');
-      const src = String(n.source_name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
-      const when = String(n.published_at || '').replace(/&/g,'&amp;');
-      const meta = (src || when) ? ('<span class="meta">' + (src || '') + (src && when ? ' · ' : '') + (when || '') + '</span>') : '';
-      newsUl += '<li style="margin:8px 0;"><a href="' + u + '" target="_blank" rel="noopener noreferrer" style="color:#7eb8ff;">' + t + '</a> ' + meta + '</li>';
-    }}
-    const fwd = (d.thesis && d.thesis.investment_case_forward) ? d.thesis.investment_case_forward : {{}};
-    const priceLine = (item.last_price != null && item.last_price !== undefined)
-      ? `${{Number(item.last_price).toFixed(2)}} ${{item.price_currency || 'USD'}}`
-      : 'N/A';
-    const dayChg = (item.price_change_pct_day != null && item.price_change_pct_day !== undefined)
-      ? `${{Number(item.price_change_pct_day) >= 0 ? '+' : ''}}${{Number(item.price_change_pct_day).toFixed(2)}}%`
-      : 'N/A';
-    const quoteMeta = item.quote_as_of ? `as of ${{item.quote_as_of}} (${{item.quote_source || 'market'}})` : '';
-    return `
-      <div class="card">
-        <div class="header">
-          <div>
-            <div class="ticker">${{item.ticker}} <span class="badge">${{item.status}}</span> <span class="badge">${{item.horizon || 'N/A'}}</span></div>
-            <div class="meta">${{item.as_of}}</div>
-          </div>
-          <div class="score">${{item.final_score.toFixed(2)}}</div>
-        </div>
-        <div class="panel" style="margin-top:10px;">
-          <h3>Executive Investment Summary</h3>
-          <div style="font-size:13px; color:#d5def0; line-height:1.5;">${{summaryText}}</div>
-          <div class="kpi">
-            <div class="chip">Last price: <b>${{priceLine}}</b></div>
-            <div class="chip">Day change: <b>${{dayChg}}</b></div>
-            <div class="chip">Quote: <span class="mono">${{quoteMeta || 'refresh if missing'}}</span></div>
-            <div class="chip">Revenue: <b>${{compactMoney(keyFinancials.revenue)}}</b></div>
-            <div class="chip">FCF: <b>${{compactMoney(keyFinancials.fcf)}}</b></div>
-            <div class="chip">Revenue growth: <b>${{pct(keyFinancials.revenue_growth_pct)}}</b></div>
-            <div class="chip">Operating margin: <b>${{pct(keyFinancials.operating_margin)}}</b></div>
-            <div class="chip">ROE: <b>${{pct(keyFinancials.roe)}}</b></div>
-          </div>
-        </div>
-        <div class="panel" style="margin-top:10px;">
-          <h3>Why invest? Forward-looking rationale</h3>
-          <div style="font-size:13px; color:#dbe7ff; line-height:1.5;">${{fwd.headline || 'Forward case will appear after the next full analysis run.'}}</div>
-          <ul>${{(fwd.bullets || []).map(b => `<li>${{b}}</li>`).join('')}}</ul>
-          <div class="meta">${{fwd.horizon_note || ''}}</div>
-          <div class="meta" style="margin-top:8px; font-size:11px;">${{fwd.disclaimer || ''}}</div>
-        </div>
-        <div class="grid">
-          <div class="panel">
-            <h3>Why This Is Recommended</h3>
-            <ul>${{whyNow.map(x => `<li>${{x}}</li>`).join('')}}</ul>
-          </div>
-          <div class="panel">
-            <h3>Investor Lens Narratives</h3>
-            <ul>${{personaReasoning.map(x => `<li>${{x}}</li>`).join('')}}</ul>
-          </div>
-          <div class="panel">
-            <h3>Lens Criteria Audit (Pass/Fail)</h3>
-            ${{checklistHtml}}
-          </div>
-          <div class="panel">
-            <h3>Score Attribution</h3>
-            <ul>${{contributionHtml}}</ul>
-          </div>
-          <div class="panel">
-            <h3>Three-Year Fundamentals Trend</h3>
-            <ul>${{trendHtml}}</ul>
-          </div>
-          <div class="panel">
-            <h3>Filings, Risk, and Secondary Context</h3>
-            <ul>
-              <li>10-K fiscal years reviewed: <span class="mono">${{filingYears.join(', ') || 'N/A'}}</span></li>
-              <li>Filing word signals - risk: <span class="mono">${{filingWords.risk || 0}}</span>, litigation: <span class="mono">${{filingWords.litigation || 0}}</span>, growth: <span class="mono">${{filingWords.growth || 0}}</span>, AI: <span class="mono">${{filingWords.ai || 0}}</span>, debt: <span class="mono">${{filingWords.debt || 0}}</span></li>
-              <li>Analyst context score: <span class="mono">${{context.analyst_consensus_score ?? 'N/A'}}</span></li>
-              <li>News risk score: <span class="mono">${{context.news_risk_score ?? 'N/A'}}</span></li>
-              <li>Search interest score: <span class="mono">${{context.search_interest_score ?? 'N/A'}}</span></li>
-            </ul>
-            <h3 style="margin-top:10px;">Principal Risks</h3>
-            <ul>${{risks.map(x => `<li>${{x}}</li>`).join('')}}</ul>
-          </div>
-        </div>
-        <div class="panel" style="margin-top:12px; border-color:#315082;">
-          <h3>Trusted outlet headlines (last 10 days)</h3>
-          <div class="meta" style="margin-bottom:8px;">Loaded live on each refresh (same trusted-outlet filter as research policy; not used to auto-block).</div>
-          ${{newsUl ? '<ul style="margin:0; padding-left:18px;">' + newsUl + '</ul>' : '<div class="meta">No matching headlines in this window, or the feed is temporarily unavailable. Set NEWSAPI_KEY for domain-filtered coverage.</div>'}}
-        </div>
-      </div>
-    `;
-  }}).join('');
-  document.getElementById('lastRun').textContent = data[0].as_of;
-}}
-loadRecs();
-</script>
-</body>
-</html>
-        """
-    )
+    if last_run and last_run.as_of:
+        dt = last_run.as_of
+        try:
+            last_run_display = f"{dt.strftime('%B')} {dt.day}, {dt.year}"
+        except Exception:
+            last_run_display = str(last_run.as_of)
+    else:
+        last_run_display = "Never"
+    return HTMLResponse(_load_dashboard_html(last_run_display))

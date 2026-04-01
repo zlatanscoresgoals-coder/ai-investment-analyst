@@ -27,6 +27,9 @@ class RecommendationOut(BaseModel):
 
 
 class RecommendationDetailOut(RecommendationOut):
+    company_name: Optional[str] = None
+    sector: Optional[str] = None
+    industry: Optional[str] = None
     persona_scores: dict[str, float] = Field(default_factory=dict)
     thesis: dict[str, Any] = Field(default_factory=dict)
     risks: dict[str, Any] = Field(default_factory=dict)

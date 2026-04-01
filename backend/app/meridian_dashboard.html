@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MERIDIAN | AI Investment Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-page: #07090D;
+      --bg-card: #0C1118;
+      --border-card: rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(255, 255, 255, 0.14);
+      --gold: #C9A84C;
+      --green: #2ECC71;
+      --red: #E74C3C;
+      --blue: #3B82F6;
+      --text: #E8E3DA;
+      --text-secondary: #6A7080;
+      --text-muted: #2A3848;
+      --body-dim: #B8B2A4;
+      --header-bg: rgba(7, 9, 13, 0.97);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg-page);
+      color: var(--text);
+      font-family: "DM Sans", system-ui, sans-serif;
+      font-size: 15px;
+      padding-top: 118px;
+      padding-bottom: 48px;
+    }
+    .font-display { font-family: "Playfair Display", Georgia, serif; }
+    .font-mono { font-family: "Space Mono", ui-monospace, monospace; }
+
+    /* Scrollbar */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--gold) #0a0e14;
+    }
+    *::-webkit-scrollbar { width: 4px; height: 4px; }
+    *::-webkit-scrollbar-track { background: #0a0e14; }
+    *::-webkit-scrollbar-thumb { background: var(--gold); border-radius: 2px; }
+
+    .site-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 16px 28px 14px;
+      background: var(--header-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-card);
+    }
+    .brand-block { display: flex; flex-direction: column; gap: 2px; }
+    .brand-name {
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 0.25em;
+      color: var(--gold);
+      margin: 0;
+      line-height: 1.1;
+    }
+    .brand-sub {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--text-muted);
+    }
+    .header-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+    .header-meta {
+      font-size: 11px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-right: 8px;
+    }
+    .header-meta span { color: var(--text); font-family: "Space Mono", monospace; font-size: 10px; }
+    .btn {
+      font-family: "DM Sans", sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 10px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: border-color 0.2s, background 0.2s, color 0.2s;
+    }
+    .btn-gold {
+      background: var(--gold);
+      color: #07090D;
+      border-color: var(--gold);
+    }
+    .btn-gold:hover { filter: brightness(1.08); }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text);
+      border-color: var(--border-card);
+    }
+    .btn-ghost:hover { border-color: var(--border-hover); background: rgba(255,255,255,0.03); }
+
+    .status-strip {
+      position: fixed;
+      top: 72px;
+      left: 0;
+      right: 0;
+      z-index: 99;
+      padding: 0 28px 8px;
+      background: var(--header-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    .status-track {
+      height: 3px;
+      background: var(--text-muted);
+      border-radius: 2px;
+      overflow: hidden;
+      position: relative;
+    }
+    .status-track.running .status-fill {
+      width: 35%;
+      animation: statusSweep 1.1s ease-in-out infinite;
+    }
+    .status-fill {
+      height: 100%;
+      width: 0;
+      background: var(--gold);
+      border-radius: 2px;
+      transition: width 0.25s ease;
+    }
+    @keyframes statusSweep {
+      0% { transform: translateX(-120%); }
+      100% { transform: translateX(380%); }
+    }
+    .status-text {
+      margin-top: 6px;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+
+    .main-wrap {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 24px 28px 0;
+    }
+
+    .critical-panel {
+      display: none;
+      margin-bottom: 20px;
+      padding: 20px 24px;
+      background: rgba(231, 76, 60, 0.06);
+      border: 1px solid var(--border-card);
+      border-left: 4px solid var(--red);
+      border-radius: 10px;
+    }
+    .critical-panel.visible { display: block; }
+    .critical-panel h2 {
+      margin: 0 0 4px 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .critical-panel .sub {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 14px;
+    }
+    .alert-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+      background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border-card);
+      border-radius: 999px;
+    }
+    .alert-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; margin-top: 5px; }
+    .alert-ticker { font-family: "Space Mono", monospace; font-weight: 700; font-size: 13px; color: var(--gold); min-width: 56px; }
+    .alert-body { flex: 1; min-width: 0; }
+    .alert-headline { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
+    .badge-ws {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border-card);
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+    .badge-ws.blocked { border-color: rgba(231,76,60,0.5); color: var(--red); }
+    .badge-ws.cleared { border-color: rgba(46,204,113,0.4); color: var(--green); }
+
+    #recs { display: flex; flex-direction: column; gap: 20px; }
+
+    .stock-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 10px;
+      padding: 28px 32px;
+      transition: border-color 0.2s ease;
+    }
+    .stock-card:hover { border-color: var(--border-hover); }
+
+    .card-top {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+    @media (max-width: 768px) {
+      body { padding-top: 200px; }
+      .site-header { flex-direction: column; align-items: flex-start; }
+      .status-strip { top: auto; position: relative; padding-top: 8px; }
+      .card-top { grid-template-columns: 1fr; text-align: left; }
+      .card-top .price-block { text-align: left !important; }
+    }
+
+    .ticker-lg {
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--gold);
+      line-height: 1.1;
+    }
+    .company-name {
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--text);
+      margin-top: 4px;
+    }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .pill {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border-card);
+      color: var(--text-secondary);
+    }
+
+    .score-center { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .score-ring-wrap { position: relative; width: 112px; height: 112px; }
+    .score-ring-wrap svg { transform: rotate(-90deg); }
+    .score-ring-bg { fill: none; stroke: var(--text-muted); stroke-width: 3; opacity: 0.35; }
+    .score-ring-fg {
+      fill: none;
+      stroke: url(#scoreGrad);
+      stroke-width: 3;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.6s ease;
+    }
+    .score-num {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Space Mono", monospace;
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .price-block { text-align: right; }
+    .price-val {
+      font-family: "Space Mono", monospace;
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1;
+    }
+    .price-chg { font-family: "Space Mono", monospace; font-size: 14px; font-weight: 600; margin-top: 6px; }
+    .price-chg.up { color: var(--green); }
+    .price-chg.down { color: var(--red); }
+    .price-updated {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 8px;
+      letter-spacing: 0.04em;
+    }
+
+    .metrics-scroll {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+      margin-bottom: 22px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .metric-pill {
+      flex: 0 0 auto;
+      min-width: 120px;
+      padding: 10px 14px;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid var(--border-card);
+      border-radius: 8px;
+    }
+    .metric-pill .lbl {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-muted);
+    }
+    .metric-pill .val {
+      font-family: "Space Mono", monospace;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-top: 4px;
+    }
+
+    .breakdown { margin: 16px 0 20px; }
+    .breakdown .sec-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+    .bar-row { margin-bottom: 8px; }
+    .bar-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-bottom: 3px; }
+    .bar-label span:last-child { font-family: "Space Mono", monospace; color: var(--body-dim); }
+    .bar-track { height: 3px; background: var(--text-muted); border-radius: 2px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+    .bar-moat .bar-fill { background: var(--blue); }
+    .bar-growth .bar-fill { background: #E67E22; }
+    .bar-value .bar-fill { background: var(--gold); }
+    .bar-momentum .bar-fill { background: var(--green); }
+
+    .meridian-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0;
+      border-bottom: 1px solid var(--border-card);
+      margin-bottom: 20px;
+    }
+    .meridian-tab {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      padding: 12px 16px;
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      font-family: "DM Sans", sans-serif;
+      font-weight: 600;
+    }
+    .meridian-tab:hover { color: var(--body-dim); }
+    .meridian-tab.active {
+      color: var(--gold);
+      border-bottom-color: var(--gold);
+    }
+    .meridian-tab-panel { display: none; }
+    .meridian-tab-panel.active { display: block; }
+
+    .sec-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--text-muted);
+      margin: 0 0 10px 0;
+    }
+    .body-prose {
+      font-size: 14px;
+      line-height: 1.85;
+      color: var(--body-dim);
+    }
+    .list-diamond { list-style: none; margin: 12px 0; padding: 0; }
+    .list-diamond li {
+      position: relative;
+      padding-left: 1.15em;
+      margin: 8px 0;
+      font-size: 14px;
+      line-height: 1.85;
+      color: var(--body-dim);
+    }
+    .list-diamond li::before {
+      content: "◆";
+      position: absolute;
+      left: 0;
+      top: 0.35em;
+      font-size: 0.45em;
+      color: var(--gold);
+    }
+    .list-diamond.risk li::before { color: var(--red); }
+
+    .lens-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    .lens-card {
+      padding: 16px 18px;
+      background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border-card);
+      border-radius: 8px;
+      border-left-width: 4px;
+    }
+    .lens-card .lname {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      margin-bottom: 8px;
+    }
+    .lens-card .ltext { font-size: 13px; line-height: 1.75; color: var(--text-secondary); }
+
+    .empty-card {
+      padding: 40px;
+      text-align: center;
+      color: var(--text-secondary);
+      border: 1px dashed var(--border-card);
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand-block">
+      <h1 class="brand-name">MERIDIAN</h1>
+      <div class="brand-sub">AI Investment Intelligence</div>
+    </div>
+    <div class="header-actions">
+      <div class="header-meta">Last run <span id="lastRun">__LAST_RUN__</span></div>
+      <button type="button" class="btn btn-gold" onclick="runFull()">Run Full Analysis</button>
+      <button type="button" class="btn btn-ghost" onclick="loadRecs()">Refresh</button>
+      <button type="button" class="btn btn-ghost" onclick="window.location='/logout'">Logout</button>
+    </div>
+  </header>
+
+  <div class="status-strip">
+    <div class="status-track" id="statusTrack">
+      <div class="status-fill" id="statusFill"></div>
+    </div>
+    <div class="status-text" id="statusText">Ready</div>
+  </div>
+
+  <main class="main-wrap">
+    <div id="criticalPanel" class="critical-panel"></div>
+    <div id="recs"></div>
+  </main>
+
+  <svg width="0" height="0" aria-hidden="true">
+    <defs>
+      <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#C9A84C" />
+        <stop offset="100%" stop-color="#2ECC71" />
+      </linearGradient>
+    </defs>
+  </svg>
+
+<script>
+function formatUsDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+}
+function formatQuoteUpdated(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/"/g, "&quot;");
+}
+function toTen(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(10, Math.max(0, Math.round((n / 10) * 10) / 10));
+}
+function workflowBadge(ws) {
+  const labels = { blocked: "Blocked", unblocked: "Cleared", under_review: "Under review", confirmed: "Confirmed" };
+  const cls = ws === "blocked" ? "blocked" : ws === "unblocked" ? "cleared" : "";
+  return '<span class="badge-ws ' + cls + '">' + esc(labels[ws] || ws || "—") + "</span>";
+}
+function confidenceLabel(c) {
+  if (!c || c === "unknown") return "";
+  const t = String(c).replace(/_/g, " ");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/* Narrative array from API is Buffett, Ackman, Wood, Burry, Institutional; Pelosi is score-only */
+const LENS_ORDER = [
+  { key: "buffett", label: "Buffett", color: "#4A90A4", reasoningIndex: 0 },
+  { key: "ackman", label: "Ackman", color: "#9B59B6", reasoningIndex: 1 },
+  { key: "wood", label: "Wood", color: "#E67E22", reasoningIndex: 2 },
+  { key: "burry", label: "Burry", color: "#E74C3C", reasoningIndex: 3 },
+  { key: "pelosi_proxy", label: "Pelosi proxy", color: "#27AE60", reasoningIndex: -1 },
+  { key: "institutional", label: "Institutional", color: "#7F8C8D", reasoningIndex: 4 },
+];
+
+function setStatusRunning(on) {
+  document.getElementById("statusTrack").classList.toggle("running", on);
+}
+function setStatusMsg(text) {
+  document.getElementById("statusText").textContent = text;
+}
+
+async function runFull() {
+  setStatusRunning(true);
+  setStatusMsg("Running full pipeline");
+  const res = await fetch("/run/full", { method: "POST" });
+  const data = await res.json();
+  let line = data.message || "Done";
+  if (data.failures && data.failures.length) {
+    line += "\n\nErrors (preview):\n" + data.failures.slice(0, 8).join("\n");
+  }
+  setStatusRunning(false);
+  setStatusMsg(line);
+  await loadRecs();
+}
+
+function renderCriticalAlerts(alerts) {
+  const panel = document.getElementById("criticalPanel");
+  if (!alerts || !alerts.length) {
+    panel.classList.remove("visible");
+    panel.innerHTML = "";
+    return;
+  }
+  panel.classList.add("visible");
+  const rows = alerts.map((a) => {
+    const conf = confidenceLabel(a.confidence);
+    const confHtml = conf ? '<span class="badge-ws" style="margin-left:8px">' + esc(conf) + "</span>" : "";
+    return (
+      '<div class="alert-row">' +
+      '<span class="alert-dot"></span>' +
+      '<span class="alert-ticker">' + esc(a.ticker) + "</span>" +
+      '<div class="alert-body">' +
+      '<div class="alert-headline">' + esc(a.headline || a.event_type || "") + "</div>" +
+      "</div>" +
+      workflowBadge(a.workflow_status) +
+      confHtml +
+      "</div>"
+    );
+  }).join("");
+  panel.innerHTML =
+    "<h2>Critical Alerts</h2>" +
+    '<div class="sub">Items requiring attention from the risk monitor.</div>' +
+    rows;
+}
+
+document.body.addEventListener("click", (e) => {
+  const tab = e.target.closest(".meridian-tab");
+  if (!tab) return;
+  const card = tab.closest(".stock-card");
+  if (!card) return;
+  const name = tab.dataset.tab;
+  card.querySelectorAll(".meridian-tab").forEach((b) => {
+    b.classList.toggle("active", b === tab);
+    b.setAttribute("aria-selected", b === tab);
+  });
+  card.querySelectorAll(".meridian-tab-panel").forEach((p) => {
+    p.classList.toggle("active", p.dataset.tab === name);
+  });
+});
+
+async function loadRecs() {
+  const [recRes, watchRes, alertsRes] = await Promise.all([
+    fetch("/recommendations?status=recommended"),
+    fetch("/recommendations?status=watchlist"),
+    fetch("/alerts/critical?limit=15"),
+  ]);
+  const alerts = await alertsRes.json();
+  renderCriticalAlerts(Array.isArray(alerts) ? alerts : []);
+
+  const recommended = await recRes.json();
+  const watchlist = await watchRes.json();
+  const byTicker = new Map();
+  for (const r of [...recommended, ...watchlist]) {
+    const cur = byTicker.get(r.ticker);
+    if (!cur) {
+      byTicker.set(r.ticker, r);
+      continue;
+    }
+    if (cur.status !== "recommended" && r.status === "recommended") {
+      byTicker.set(r.ticker, r);
+    } else if (Number(r.final_score) > Number(cur.final_score)) {
+      byTicker.set(r.ticker, r);
+    }
+  }
+  const data = Array.from(byTicker.values()).sort((a, b) => Number(b.final_score) - Number(a.final_score));
+  const target = document.getElementById("recs");
+  if (!data.length) {
+    target.innerHTML = '<div class="empty-card">No recommendations or watchlist rows yet. Run full analysis.</div>';
+    return;
+  }
+
+  const detailed = await Promise.all(
+    data.map(async (r) => {
+      const dr = await fetch("/recommendations/" + r.ticker);
+      const detail = await dr.json();
+      return { ...r, detail };
+    })
+  );
+
+  document.getElementById("lastRun").textContent = formatUsDate(data[0].as_of);
+
+  target.innerHTML = detailed.map((item) => buildCard(item)).join("");
+}
+
+function buildCard(item) {
+  const d = item.detail || {};
+  const whyNow = (d.thesis && d.thesis.why_now) ? d.thesis.why_now : [];
+  const personaReasoning = (d.thesis && d.thesis.persona_reasoning) ? d.thesis.persona_reasoning : [];
+  const filingWords = (d.thesis && d.thesis.filing_word_search) ? d.thesis.filing_word_search : {};
+  const keyFinancials = (d.thesis && d.thesis.key_financials) ? d.thesis.key_financials : {};
+  const checklist = (d.thesis && d.thesis.persona_checklist) ? d.thesis.persona_checklist : {};
+  const contributions = (d.thesis && d.thesis.score_contribution) ? d.thesis.score_contribution : {};
+  const weights = (d.thesis && d.thesis.score_weights) ? d.thesis.score_weights : {};
+  const trends = (d.thesis && d.thesis.three_year_trends) ? d.thesis.three_year_trends : [];
+  const risks = (d.risks && d.risks.key_risks) ? d.risks.key_risks : [];
+  const filingYears = d.filing_years_analyzed || [];
+  const context = d.context || {};
+  const ps = d.persona_scores || {};
+  const score = Number(item.final_score) || 0;
+  const ringCirc = 2 * Math.PI * 44;
+  const arcOff = ringCirc * (1 - Math.min(100, Math.max(0, score)) / 100);
+
+  const fmt = (v, digits) =>
+    v === null || v === undefined ? "N/A" : typeof v === "number" ? v.toFixed(digits) : v;
+  const compactMoney = (v) => {
+    if (v === null || v === undefined) return "N/A";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "N/A";
+    const abs = Math.abs(n);
+    if (abs >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (abs >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    return n.toFixed(2);
+  };
+  const pct = (v) => (v === null || v === undefined ? "N/A" : Number(v).toFixed(2) + "%");
+
+  const moat = toTen(ps.buffett);
+  const growth = toTen(ps.wood);
+  const value = toTen(ps.burry);
+  const momentum = toTen(ps.ackman);
+
+  const stLabel =
+    item.status === "recommended"
+      ? "recommended"
+      : item.status === "watchlist"
+      ? "on the watchlist"
+      : String(item.status || "listed");
+  const summaryText =
+    "This name is " +
+    stLabel +
+    " with a blended score of " +
+    item.final_score.toFixed(2) +
+    ". Under the Buffett lens, quality and cash generation remain supportive; Ackman-style quality metrics and operating profile are constructive. The Wood lens focuses on growth trajectory and margin structure, while the Burry lens checks balance-sheet resilience and valuation discipline. Institutional suitability is evaluated through liquidity and scale assumptions.";
+
+  const fwd = (d.thesis && d.thesis.investment_case_forward) ? d.thesis.investment_case_forward : {};
+  const priceLine =
+    item.last_price != null && item.last_price !== undefined
+      ? Number(item.last_price).toFixed(2) + " " + (item.price_currency || "USD")
+      : "N/A";
+  const chgNum = item.price_change_pct_day;
+  const chgStr =
+    chgNum != null && chgNum !== undefined
+      ? (Number(chgNum) >= 0 ? "+" : "") + Number(chgNum).toFixed(2) + "%"
+      : "—";
+  let chgClass = "";
+  if (chgNum != null && chgNum !== undefined && Number.isFinite(Number(chgNum))) {
+    chgClass = Number(chgNum) >= 0 ? "up" : "down";
+  }
+  const quoteWhen = formatQuoteUpdated(item.quote_as_of);
+
+  const sectorPill = d.sector || d.industry || "Sector N/A";
+  const horizonPill = item.horizon || "—";
+
+  const checklistHtml = Object.entries(checklist)
+    .map(
+      ([lens, items]) =>
+        '<p class="sec-label">' +
+        esc(lens) +
+        "</p><ul class=\"list-diamond\">" +
+        (items || [])
+          .map((i) => {
+            const col = i.pass ? "#2ECC71" : "#E74C3C";
+            const pf = i.pass ? "PASS" : "FAIL";
+            return (
+              "<li><span class=\"font-mono\" style=\"color:" +
+              col +
+              "\">" +
+              pf +
+              "</span> — " +
+              esc(i.criterion) +
+              " actual <span class=\"font-mono\">" +
+              esc(fmt(i.actual)) +
+              "</span> vs " +
+              esc(i.comparator) +
+              " <span class=\"font-mono\">" +
+              esc(fmt(i.threshold)) +
+              "</span></li>"
+            );
+          })
+          .join("") +
+        "</ul>"
+    )
+    .join("");
+
+  const contributionHtml =
+    '<ul class="list-diamond">' +
+    Object.entries(contributions)
+      .map(
+        ([k, v]) =>
+          "<li><strong>" +
+          esc(k) +
+          "</strong> — <span class=\"font-mono\">" +
+          esc(fmt(v)) +
+          "</span> pts (weight <span class=\"font-mono\">" +
+          esc(fmt(weights[k], 2)) +
+          "</span>)</li>"
+      )
+      .join("") +
+    "</ul>";
+
+  const trendHtml =
+    '<ul class="list-diamond">' +
+    trends
+      .map(
+        (t) =>
+          "<li>FY" +
+          esc(t.fiscal_year) +
+          ": Rev <strong class=\"font-mono\">" +
+          esc(compactMoney(t.revenue)) +
+          "</strong>, GM " +
+          esc(pct(t.gross_margin)) +
+          ", OpM " +
+          esc(pct(t.operating_margin)) +
+          ", ROE " +
+          esc(pct(t.roe)) +
+          ", FCF <span class=\"font-mono\">" +
+          esc(compactMoney(t.fcf)) +
+          "</span></li>"
+      )
+      .join("") +
+    "</ul>";
+
+  const reasoningLines = personaReasoning.length
+    ? personaReasoning
+    : [];
+
+  const lensCards = LENS_ORDER.map((L) => {
+    let line = "";
+    if (L.reasoningIndex >= 0 && reasoningLines[L.reasoningIndex]) {
+      line = reasoningLines[L.reasoningIndex];
+    } else if (L.key === "pelosi_proxy") {
+      const sc = ps.pelosi_proxy;
+      line =
+        "Pelosi proxy lens — score " +
+        (sc != null ? Number(sc).toFixed(1) : "N/A") +
+        " (flow / positioning proxy; narrative packs with full run).";
+    } else {
+      const sc = ps[L.key];
+      line =
+        L.label +
+        " lens — score " +
+        (sc != null ? Number(sc).toFixed(1) : "N/A") +
+        (reasoningLines.length ? " — no line in this payload." : " (awaiting narrative on next run).");
+    }
+    return (
+      '<div class="lens-card" style="border-left-color:' +
+      L.color +
+      '">' +
+      '<div class="lname" style="color:' +
+      L.color +
+      '">' +
+      esc(L.label) +
+      "</div>" +
+      '<div class="ltext">' +
+      esc(line) +
+      "</div></div>"
+    );
+  }).join("");
+
+  const invNews = d.investor_news || [];
+  let newsBlock = "";
+  if (invNews.length) {
+    newsBlock =
+      '<p class="sec-label">Trusted outlet headlines (10d)</p><ul class="list-diamond">' +
+      invNews
+        .map((n) => {
+          const t = esc(n.title || "");
+          const u = esc(n.url || "#");
+          const meta = [n.source_name, n.published_at].filter(Boolean).map(esc).join(" · ");
+          return (
+            "<li><a href=\"" +
+            u +
+            "\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"color:#3B82F6;text-decoration:none\">" +
+            t +
+            "</a>" +
+            (meta ? " <span style=\"color:#6A7080;font-size:12px\">" + meta + "</span>" : "") +
+            "</li>"
+          );
+        })
+        .join("") +
+      "</ul>";
+  } else {
+    newsBlock =
+      '<p class="sec-label">Trusted outlet headlines (10d)</p><p class="body-prose">No items in this window, or feed unavailable. Set NEWSAPI_KEY for stronger coverage.</p>';
+  }
+
+  const tabs = [
+    { id: "exec", label: "Executive Summary" },
+    { id: "why", label: "Why Invest" },
+    { id: "lenses", label: "Investor Lenses" },
+    { id: "risk", label: "Risk Factors" },
+    { id: "sec", label: "SEC Data" },
+  ];
+
+  const tabBar =
+    '<div class="meridian-tabs" role="tablist">' +
+    tabs
+      .map(
+        (t, i) =>
+          '<button type="button" class="meridian-tab' +
+          (i === 0 ? " active" : "") +
+          '" data-tab="' +
+          t.id +
+          '" role="tab" aria-selected="' +
+          (i === 0 ? "true" : "false") +
+          '">' +
+          esc(t.label) +
+          "</button>"
+      )
+      .join("") +
+    "</div>";
+
+  const tabExec =
+    '<div class="meridian-tab-panel active" data-tab="exec" role="tabpanel">' +
+    '<p class="sec-label">Narrative</p>' +
+    '<p class="body-prose">' +
+    esc(summaryText) +
+    "</p>" +
+    '<div class="breakdown">' +
+    '<div class="sec-label">Score model</div>' +
+    barRow("Moat", moat, "bar-moat") +
+    barRow("Growth", growth, "bar-growth") +
+    barRow("Value", value, "bar-value") +
+    barRow("Momentum", momentum, "bar-momentum") +
+    "</div>" +
+    '<p class="sec-label">Attribution</p>' +
+    contributionHtml +
+    "</div>";
+
+  const tabWhy =
+    '<div class="meridian-tab-panel" data-tab="why" role="tabpanel">' +
+    '<p class="sec-label">Forward case</p>' +
+    '<p class="body-prose">' +
+    esc(fwd.headline || "Forward case will appear after the next full analysis run.") +
+    "</p>" +
+    '<ul class="list-diamond">' +
+    (fwd.bullets || []).map((b) => "<li>" + esc(b) + "</li>").join("") +
+    "</ul>" +
+    (fwd.horizon_note ? '<p class="body-prose" style="margin-top:12px">' + esc(fwd.horizon_note) + "</p>" : "") +
+    (fwd.disclaimer
+      ? '<p class="body-prose" style="margin-top:10px;font-size:12px;opacity:0.85">' + esc(fwd.disclaimer) + "</p>"
+      : "") +
+    "</div>";
+
+  const tabLenses =
+    '<div class="meridian-tab-panel" data-tab="lenses" role="tabpanel">' +
+    '<p class="sec-label">Multi-lens view</p>' +
+    '<div class="lens-grid">' +
+    lensCards +
+    "</div></div>";
+
+  const tabRisk =
+    '<div class="meridian-tab-panel" data-tab="risk" role="tabpanel">' +
+    '<p class="sec-label">Principal risks</p>' +
+    '<ul class="list-diamond risk">' +
+    (risks.length ? risks.map((x) => "<li>" + esc(x) + "</li>").join("") : "<li>No principal risks listed.</li>") +
+    "</ul></div>";
+
+  const tabSec =
+    '<div class="meridian-tab-panel" data-tab="sec" role="tabpanel">' +
+    '<p class="sec-label">Filings & context</p>' +
+    '<ul class="list-diamond">' +
+    "<li>10-K fiscal years: <span class=\"font-mono\">" +
+    esc(filingYears.join(", ") || "N/A") +
+    "</span></li>" +
+    "<li>Word signals — risk <span class=\"font-mono\">" +
+    esc(filingWords.risk || 0) +
+    "</span>, litigation <span class=\"font-mono\">" +
+    esc(filingWords.litigation || 0) +
+    "</span>, growth <span class=\"font-mono\">" +
+    esc(filingWords.growth || 0) +
+    "</span>, AI <span class=\"font-mono\">" +
+    esc(filingWords.ai || 0) +
+    "</span>, debt <span class=\"font-mono\">" +
+    esc(filingWords.debt || 0) +
+    "</span></li>" +
+    "<li>Analyst context <span class=\"font-mono\">" +
+    esc(context.analyst_consensus_score ?? "N/A") +
+    "</span></li>" +
+    "<li>News risk <span class=\"font-mono\">" +
+    esc(context.news_risk_score ?? "N/A") +
+    "</span></li>" +
+    "<li>Search interest <span class=\"font-mono\">" +
+    esc(context.search_interest_score ?? "N/A") +
+    "</span></li>" +
+    "</ul>" +
+    '<p class="sec-label">Why recommended</p>' +
+    '<ul class="list-diamond">' +
+    whyNow.map((x) => "<li>" + esc(x) + "</li>").join("") +
+    "</ul>" +
+    '<p class="sec-label">Three-year trend</p>' +
+    trendHtml +
+    '<p class="sec-label">Lens criteria</p>' +
+    checklistHtml +
+    newsBlock +
+    "</div>";
+
+  return (
+    '<article class="stock-card" data-ticker="' +
+    esc(item.ticker) +
+    '">' +
+    '<div class="card-top">' +
+    "<div>" +
+    '<div class="ticker-lg">' +
+    esc(item.ticker) +
+    "</div>" +
+    '<div class="company-name">' +
+    esc(d.company_name || item.ticker) +
+    "</div>" +
+    '<div class="pill-row">' +
+    '<span class="pill">' +
+    esc(sectorPill) +
+    "</span>" +
+    '<span class="pill">' +
+    esc(horizonPill) +
+    "</span>" +
+    '<span class="pill">' +
+    esc(item.status) +
+    "</span>" +
+    "</div></div>" +
+    '<div class="score-center">' +
+    '<div class="score-ring-wrap">' +
+    "<svg width=\"112\" height=\"112\" viewBox=\"0 0 112 112\">" +
+    '<circle class="score-ring-bg" cx="56" cy="56" r="44" />' +
+    '<circle class="score-ring-fg" cx="56" cy="56" r="44" stroke-dasharray="' +
+    ringCirc +
+    '" style="stroke-dashoffset:' +
+    arcOff +
+    '" />' +
+    "</svg>" +
+    '<div class="score-num">' +
+    esc(item.final_score.toFixed(2)) +
+    "</div></div>" +
+    '<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.2em;color:#6A7080;margin-top:6px">Blended</div>' +
+    "</div>" +
+    '<div class="price-block">' +
+    '<div class="price-val">' +
+    esc(priceLine) +
+    "</div>" +
+    '<div class="price-chg ' +
+    chgClass +
+    '">' +
+    esc(chgStr) +
+    "</div>" +
+    '<div class="price-updated">' +
+    (quoteWhen ? "Last updated " + esc(quoteWhen) : "") +
+    "</div></div></div>" +
+    '<div class="metrics-scroll">' +
+    metricPill("Revenue", compactMoney(keyFinancials.revenue)) +
+    metricPill("FCF", compactMoney(keyFinancials.fcf)) +
+    metricPill("Rev growth", pct(keyFinancials.revenue_growth_pct)) +
+    metricPill("Op margin", pct(keyFinancials.operating_margin)) +
+    metricPill("ROE", pct(keyFinancials.roe)) +
+    "</div>" +
+    tabBar +
+    tabExec +
+    tabWhy +
+    tabLenses +
+    tabRisk +
+    tabSec +
+    "</article>"
+  );
+}
+
+function metricPill(lbl, val) {
+  return (
+    '<div class="metric-pill"><div class="lbl">' +
+    esc(lbl) +
+    '</div><div class="val">' +
+    esc(val) +
+    "</div></div>"
+  );
+}
+
+function barRow(label, val10, cls) {
+  const pctW = Math.min(100, (val10 / 10) * 100);
+  return (
+    '<div class="bar-row ' +
+    cls +
+    '"><div class="bar-label"><span>' +
+    esc(label) +
+    '</span><span>' +
+    esc(val10.toFixed(1)) +
+    " / 10</span></div>" +
+    '<div class="bar-track"><div class="bar-fill" style="width:' +
+    pctW +
+    '%"></div></div></div>'
+  );
+}
+
+loadRecs();
+</script>
+</body>
+</html>
