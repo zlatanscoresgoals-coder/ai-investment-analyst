@@ -4,6 +4,14 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
+class InvestorNewsItem(BaseModel):
+    title: str
+    url: str
+    source_name: Optional[str] = None
+    published_at: Optional[str] = None
+    description: Optional[str] = None
+
+
 class RecommendationOut(BaseModel):
     ticker: str
     status: str
@@ -25,6 +33,7 @@ class RecommendationDetailOut(RecommendationOut):
     context: dict[str, Any] = Field(default_factory=dict)
     filing_years_analyzed: list[int] = Field(default_factory=list)
     live_quote: Optional[dict[str, Any]] = None
+    investor_news: list[InvestorNewsItem] = Field(default_factory=list)
 
 
 class GenericMessage(BaseModel):

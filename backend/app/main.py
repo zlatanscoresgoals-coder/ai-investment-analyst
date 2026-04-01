@@ -7,7 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db import Base, engine, get_db
+from app.db import Base, SessionLocal, engine, get_db
 from app.ingestion.ir_fetcher import fetch_ir_filing_fallback_urls
 from app.ingestion.sec_filings import (
     fallback_financial_metrics_last_3y,
@@ -15,10 +15,10 @@ from app.ingestion.sec_filings import (
     fetch_last_3y_10k_urls,
 )
 from app.market.quotes import fetch_live_quote, quote_debug_status
-from app.models import Company, ContextSignal, CriticalAlert, Filing, FinancialMetric, PersonaScore, Recommendation
+from app.models import Company, ContextSignal, Filing, FinancialMetric, PersonaScore, Recommendation
+from app.news.investor_news import fetch_investor_news
 from app.recommendations.engine import run_recommendation_for_company
-from app.risk.critical_events import apply_critical_risk_gate, update_alert_workflow
-from app.schemas import GenericMessage, RecommendationDetailOut, RecommendationOut
+from app.schemas import GenericMessage, InvestorNewsItem, RecommendationDetailOut, RecommendationOut
 from app.tasks.scheduler import execute_full_pipeline, run_periodic_jobs, start_scheduler, stop_scheduler
 
 app = FastAPI(title="AI Investment Analyst API", version="0.1.0")
@@ -59,6 +59,17 @@ async def auth_middleware(request: Request, call_next):
 
 @app.on_event("startup")
 def on_startup():
+    db = SessionLocal()
+    try:
+        db.query(Recommendation).filter(Recommendation.status == "blocked").update(
+            {"status": "watchlist"},
+            synchronize_session=False,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
     start_scheduler()
 
 
@@ -223,7 +234,6 @@ def run_analysis(ticker: str, db: Session = Depends(get_db)) -> GenericMessage:
 
     try:
         run_recommendation_for_company(db, company)
-        apply_critical_risk_gate(db, company)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return GenericMessage(message=f"Analysis and scoring completed for {ticker.upper()}.")
@@ -327,6 +337,7 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
     )
     filing_years = [f.fiscal_year for f in db.query(Filing).filter(Filing.company_id == company.id).all()]
     live_q = fetch_live_quote(company.ticker)
+    news_rows = fetch_investor_news(company)
 
     return RecommendationDetailOut(
         ticker=company.ticker,
@@ -358,6 +369,7 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
         },
         filing_years_analyzed=sorted(set(filing_years), reverse=True),
         live_quote=live_q,
+        investor_news=[InvestorNewsItem(**n) for n in news_rows],
     )
 
 
@@ -375,39 +387,21 @@ def health_quote(ticker: str = Query(default="AAPL")):
     return quote_debug_status(ticker)
 
 
-@app.get("/alerts/critical")
-def list_critical_alerts(limit: int = Query(default=25, ge=1, le=200), db: Session = Depends(get_db)):
-    rows = (
-        db.query(CriticalAlert, Company)
-        .join(Company, Company.id == CriticalAlert.company_id)
-        .order_by(CriticalAlert.as_of.desc())
-        .limit(limit)
-        .all()
-    )
-    return [
-        {
-            "ticker": company.ticker,
-            "company_name": company.name,
-            "as_of": alert.as_of,
-            "event_type": alert.event_type,
-            "severity": alert.severity,
-            "source": alert.source,
-            "headline": alert.headline,
-            "url": alert.url,
-            "confidence": (alert.details_json or {}).get("confidence", "unknown"),
-            "source_count": (alert.details_json or {}).get("source_count", 0),
-            "workflow_status": (alert.details_json or {}).get("workflow_status", "blocked"),
-        }
-        for alert, company in rows
-    ]
-
-
-@app.post("/alerts/{alert_id}/workflow", response_model=GenericMessage)
-def set_alert_workflow(alert_id: int, action: str = Query(...), db: Session = Depends(get_db)):
-    alert = update_alert_workflow(db, alert_id=alert_id, action=action)
-    if not alert:
-        raise HTTPException(status_code=404, detail="Alert not found.")
-    return GenericMessage(message=f"Alert {alert_id} moved to workflow state: {action}.")
+@app.get("/health/features")
+def health_features():
+    """
+    Confirms product behavior on the running deploy (no secrets).
+    Use this after Railway/Git push to verify you are on the build that includes investor news and no auto-block gate.
+    """
+    return {
+        "auto_block_critical_risk_gate": False,
+        "investor_news_on_recommendation_detail": True,
+        "startup_migrate_blocked_to_watchlist": True,
+        "newsapi_configured": bool((settings.newsapi_key or "").strip()),
+        "trusted_outlet_filter_strict": settings.critical_news_strict_outlets,
+        "verify_detail_news": "GET /recommendations/AAPL → JSON key investor_news",
+        "verify_dashboard": "/dashboard merges recommended + watchlist and loads news per card",
+    }
 
 
 @app.get("/portfolio/impact")
@@ -430,6 +424,7 @@ def portfolio_impact(db: Session = Depends(get_db)):
             sum(v["score"] for v in blocked_latest.values()) / len(blocked_latest) if blocked_latest else None
         ),
         "blocked_tickers": sorted(blocked_latest.keys()),
+        "note": "Legacy field: scheduler no longer sets blocked; app startup rewrites existing blocked rows to watchlist.",
     }
 
 
@@ -542,26 +537,29 @@ async function runFull() {{
   await loadRecs();
 }}
 async function loadRecs() {{
-  const alertsRes = await fetch('/alerts/critical?limit=10');
-  const alerts = await alertsRes.json();
-  const res = await fetch('/recommendations?status=recommended');
-  const data = await res.json();
+  const [recRes, watchRes] = await Promise.all([
+    fetch('/recommendations?status=recommended'),
+    fetch('/recommendations?status=watchlist'),
+  ]);
+  const recommended = await recRes.json();
+  const watchlist = await watchRes.json();
+  const byTicker = new Map();
+  for (const r of [...recommended, ...watchlist]) {{
+    const cur = byTicker.get(r.ticker);
+    if (!cur) {{
+      byTicker.set(r.ticker, r);
+      continue;
+    }}
+    if (cur.status !== 'recommended' && r.status === 'recommended') {{
+      byTicker.set(r.ticker, r);
+    }} else if (Number(r.final_score) > Number(cur.final_score)) {{
+      byTicker.set(r.ticker, r);
+    }}
+  }}
+  const data = Array.from(byTicker.values()).sort((a, b) => Number(b.final_score) - Number(a.final_score));
   const target = document.getElementById('recs');
   if (!data.length) {{
-    target.innerHTML = '<div class="card">No recommendations yet. Click "Run Full Analysis Now".</div>';
-  }}
-  let alertHtml = '';
-  if (alerts && alerts.length) {{
-    alertHtml = `
-      <div class="card" style="border-color:#5f1d1d; background:linear-gradient(180deg,#2a1212,#1b1010);">
-        <div class="ticker">Critical Alerts</div>
-        <div class="meta">These stocks are automatically blocked from recommendations.</div>
-        <ul>${{alerts.map(a => `<li><b>${{a.ticker}}</b> - ${{a.event_type}} - confidence=${{a.confidence}} (sources=${{a.source_count}}) - workflow=${{a.workflow_status}} - ${{a.headline}}</li>`).join('')}}</ul>
-      </div>
-    `;
-  }}
-  if (!data.length) {{
-    target.innerHTML = alertHtml + target.innerHTML;
+    target.innerHTML = '<div class="card">No recommendations or watchlist rows yet. Click "Run Full Analysis".</div>';
     return;
   }}
   const detailed = await Promise.all(data.map(async (r) => {{
@@ -569,7 +567,7 @@ async function loadRecs() {{
     const detail = await dr.json();
     return {{ ...r, detail }};
   }}));
-  target.innerHTML = alertHtml + detailed.map(item => {{
+  target.innerHTML = detailed.map(item => {{
     const d = item.detail || {{}};
     const whyNow = (d.thesis && d.thesis.why_now) ? d.thesis.why_now : [];
     const personaReasoning = (d.thesis && d.thesis.persona_reasoning) ? d.thesis.persona_reasoning : [];
@@ -599,7 +597,18 @@ async function loadRecs() {{
     `).join('');
     const contributionHtml = Object.entries(contributions).map(([k,v]) => `<li><b>${{k}}</b> contributes <span class="mono">${{fmt(v)}}</span> weighted points (weight <span class="mono">${{fmt(weights[k], 2)}}</span>).</li>`).join('');
     const trendHtml = trends.map(t => `<li>FY${{t.fiscal_year}}: Revenue <b>${{compactMoney(t.revenue)}}</b>, Gross margin <b>${{pct(t.gross_margin)}}</b>, Operating margin <b>${{pct(t.operating_margin)}}</b>, ROE <b>${{pct(t.roe)}}</b>, FCF <b>${{compactMoney(t.fcf)}}</b>, Debt/EBITDA <b>${{fmt(t.debt_to_ebitda)}}</b>, Current ratio <b>${{fmt(t.current_ratio)}}</b>.</li>`).join('');
-    const summaryText = `The stock is recommended with a blended score of ${{item.final_score.toFixed(2)}}. Under the Buffett lens, quality and cash generation remain supportive; Ackman-style quality metrics and operating profile are constructive. The Wood lens focuses on growth trajectory and margin structure, while the Burry lens checks balance-sheet resilience and valuation discipline. Institutional suitability is evaluated through liquidity and scale assumptions.`;
+    const stLabel = item.status === 'recommended' ? 'recommended' : (item.status === 'watchlist' ? 'on the watchlist' : String(item.status || 'listed'));
+    const summaryText = 'This name is ' + stLabel + ' with a blended score of ' + item.final_score.toFixed(2) + '. Under the Buffett lens, quality and cash generation remain supportive; Ackman-style quality metrics and operating profile are constructive. The Wood lens focuses on growth trajectory and margin structure, while the Burry lens checks balance-sheet resilience and valuation discipline. Institutional suitability is evaluated through liquidity and scale assumptions.';
+    const invNews = d.investor_news || [];
+    let newsUl = '';
+    for (const n of invNews) {{
+      const t = String(n.title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+      const u = String(n.url || '#').replace(/"/g,'&quot;').replace(/'/g, '&#39;');
+      const src = String(n.source_name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+      const when = String(n.published_at || '').replace(/&/g,'&amp;');
+      const meta = (src || when) ? ('<span class="meta">' + (src || '') + (src && when ? ' · ' : '') + (when || '') + '</span>') : '';
+      newsUl += '<li style="margin:8px 0;"><a href="' + u + '" target="_blank" rel="noopener noreferrer" style="color:#7eb8ff;">' + t + '</a> ' + meta + '</li>';
+    }}
     const fwd = (d.thesis && d.thesis.investment_case_forward) ? d.thesis.investment_case_forward : {{}};
     const priceLine = (item.last_price != null && item.last_price !== undefined)
       ? `${{Number(item.last_price).toFixed(2)}} ${{item.price_currency || 'USD'}}`
@@ -612,7 +621,7 @@ async function loadRecs() {{
       <div class="card">
         <div class="header">
           <div>
-            <div class="ticker">${{item.ticker}} <span class="badge">${{item.horizon || 'N/A'}}</span></div>
+            <div class="ticker">${{item.ticker}} <span class="badge">${{item.status}}</span> <span class="badge">${{item.horizon || 'N/A'}}</span></div>
             <div class="meta">${{item.as_of}}</div>
           </div>
           <div class="score">${{item.final_score.toFixed(2)}}</div>
@@ -671,6 +680,11 @@ async function loadRecs() {{
             <h3 style="margin-top:10px;">Principal Risks</h3>
             <ul>${{risks.map(x => `<li>${{x}}</li>`).join('')}}</ul>
           </div>
+        </div>
+        <div class="panel" style="margin-top:12px; border-color:#315082;">
+          <h3>Trusted outlet headlines (last 10 days)</h3>
+          <div class="meta" style="margin-bottom:8px;">Loaded live on each refresh (same trusted-outlet filter as research policy; not used to auto-block).</div>
+          ${{newsUl ? '<ul style="margin:0; padding-left:18px;">' + newsUl + '</ul>' : '<div class="meta">No matching headlines in this window, or the feed is temporarily unavailable. Set NEWSAPI_KEY for domain-filtered coverage.</div>'}}
         </div>
       </div>
     `;

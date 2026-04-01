@@ -21,15 +21,17 @@ This is a runnable AI investment analyst product that:
 
 ## One-click workflow
 
-- Open dashboard and click **Run Full Analysis Now**.
+- Open dashboard and click **Run Full Analysis**.
 - The system will:
   - sync the stock universe
   - fetch SEC 10-K data + financial metrics
   - score each stock using persona framework
-  - display recommended names
+  - display **recommended and watchlist** names, each with **live trusted-outlet headlines** (last ~10 days; refreshes when you reload the dashboard)
 
 ## Notes
 
+- **Verify your deploy:** open **`/health/features`** (no login). You should see `auto_block_critical_risk_gate: false` and `investor_news_on_recommendation_detail: true`.
+- **Investor news:** optional **`NEWSAPI_KEY`** improves headline quality; outlet filtering uses **`CRITICAL_NEWS_ALLOWLIST`** / **`CRITICAL_NEWS_STRICT_OUTLETS`** (see `backend/.env.example`).
 - Live **stock prices** are best-effort: Finnhub (if `FINNHUB_API_KEY`), Yahoo, yfinance, Stooq, Twelve Data, Alpha Vantage (context only; not for order execution). Use `/health/quote` to debug providers on deploy.
 - Forward-looking narrative is **illustrative** and stored with each recommendation after analysis runs; it is not a price target or guarantee.
 - Uses SQLite by default (`backend/investment_analyst.db`).

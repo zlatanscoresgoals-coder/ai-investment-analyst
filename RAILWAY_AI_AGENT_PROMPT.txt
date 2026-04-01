@@ -25,10 +25,12 @@ REQUIRED / IMPORTANT ENV VARS
 - `AUTH_PASSWORD` — override default password; optionally `AUTH_USERNAME`.
 - `FINNHUB_API_KEY` — strongly recommended; Yahoo raw HTTP is often blocked from cloud/datacenter IPs, so live quotes fail without a market data API key.
 - Optional quote fallbacks: `TWELVE_DATA_API_KEY`, `ALPHAVANTAGE_API_KEY` (low free-tier limits).
+- Optional `NEWSAPI_KEY` — domain-filtered headlines for each ticker on `GET /recommendations/{TICKER}` (`investor_news`); dashboard loads these on refresh.
 
 HEALTH / DEBUG ENDPOINTS (no auth)
 - `GET /health/freshness` — basic OK + scheduler state.
 - `GET /health/quote?ticker=AAPL` — shows which quote providers are “configured” (API key present) and which HTTP provider first returns a price. Use this to verify outbound HTTPS + API keys on Railway.
+- `GET /health/features` — confirms running build (e.g. investor news enabled, auto critical block disabled). Use after deploy to prove the latest code is live.
 
 KNOWN SYMPTOMS
 1) “Live stock prices not showing” — usually: no `FINNHUB_API_KEY`, or outbound requests to Yahoo/Stooq blocked, or invalid Finnhub token. Fix: set `FINNHUB_API_KEY`, redeploy, hit `/health/quote?ticker=AAPL` and read `attempts` + `winner`.

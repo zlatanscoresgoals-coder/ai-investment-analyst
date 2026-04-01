@@ -12,7 +12,6 @@ from app.ingestion.ir_fetcher import fetch_ir_filing_fallback_urls
 from app.ingestion.sec_filings import fallback_financial_metrics_last_3y, fetch_financial_metrics_last_3y, fetch_last_3y_10k_urls
 from app.models import Company, Filing, FinancialMetric
 from app.recommendations.engine import run_recommendation_for_company
-from app.risk.critical_events import apply_critical_risk_gate
 
 _scheduler: Optional[BackgroundScheduler] = None
 _state: dict[str, Any] = {
@@ -106,7 +105,6 @@ def execute_full_pipeline(db) -> dict[str, Any]:
         try:
             _fetch_filings_and_metrics(db, company)
             run_recommendation_for_company(db, company)
-            apply_critical_risk_gate(db, company)
             analyzed += 1
         except Exception as exc:
             failures.append(f"{company.ticker}: {type(exc).__name__}: {exc}")
