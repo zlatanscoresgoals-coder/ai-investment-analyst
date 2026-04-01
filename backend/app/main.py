@@ -105,7 +105,7 @@ def root():
   <title>MERIDIAN</title>
   <script>location.replace("/dashboard");</script>
 </head>
-<body style="margin:0;background:#07090D;color:#6A7080;font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;">
+<body style="margin:0;background:#07090D;color:#B4BBC8;font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;">
   <p>Opening <a href="/dashboard" style="color:#C9A84C">dashboard</a>…</p>
 </body>
 </html>"""
@@ -128,18 +128,18 @@ def login_page():
   <style>
     body {
       margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
-      background:#07090D; color:#E8E3DA; font-family:"DM Sans",system-ui,sans-serif;
+      background:#07090D; color:#F2EDE4; font-family:"DM Sans",system-ui,sans-serif;
     }
     .card {
       width:360px; padding:28px; border-radius:10px;
       background:#0C1118; border:1px solid rgba(255,255,255,0.08);
     }
     .brand { font-family:"Playfair Display",Georgia,serif; font-size:20px; letter-spacing:0.25em; color:#C9A84C; margin:0; }
-    .sub { font-size:9px; text-transform:uppercase; letter-spacing:0.2em; color:#2A3848; margin:6px 0 20px; }
-    label { font-size:10px; text-transform:uppercase; letter-spacing:0.15em; color:#6A7080; }
+    .sub { font-size:9px; text-transform:uppercase; letter-spacing:0.2em; color:#8E97A8; margin:6px 0 20px; }
+    label { font-size:10px; text-transform:uppercase; letter-spacing:0.15em; color:#B4BBC8; }
     input {
       width:100%; box-sizing:border-box; margin-top:6px; margin-bottom:14px; padding:12px;
-      border-radius:8px; border:1px solid rgba(255,255,255,0.08); background:rgba(0,0,0,0.25); color:#E8E3DA;
+      border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.25); color:#F2EDE4;
     }
     button {
       width:100%; padding:12px; border:none; border-radius:8px; cursor:pointer; font-weight:700;
