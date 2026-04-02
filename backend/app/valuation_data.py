@@ -1,4 +1,4 @@
-"""Latest FY valuation inputs from SEC Company Facts (XBRL)."""
+"""Latest FY valuation inputs from SEC Company Facts (XBRL), 10-K / FY only."""
 
 from __future__ import annotations
 
@@ -6,47 +6,63 @@ import logging
 from typing import Any, Optional
 
 from app.ingestion.sec_filings import SEC_COMPANYFACTS_URL, _get_json, get_cik_for_ticker
+from app.ingestion.sec_xbrl import (
+    BUYBACK_TAGS,
+    CAPEX_TAGS,
+    CASH_TAGS,
+    CFO_TAGS,
+    DEPRECIATION_TAGS,
+    DIVIDEND_TAGS,
+    EBITDA_DIRECT_TAGS,
+    EPS_BASIC_TAGS,
+    EQUITY_TAGS,
+    INCOME_BEFORE_TAX_TAGS,
+    INTEREST_EXPENSE_TAGS,
+    NET_INCOME_TAGS,
+    OPERATING_INCOME_TAGS,
+    RETAINED_EARNINGS_TAGS,
+    TAX_PROVISION_TAGS,
+    TOTAL_ASSETS_TAGS,
+    collect_fiscal_years_from_revenue,
+    effective_tax_rate_pct,
+    revenue_for_fy,
+    shares_outstanding_for_fy,
+    total_debt_for_fy,
+    waterfall_eps_basic,
+    waterfall_money,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _value_for_fy(companyfacts: dict[str, Any], tags: list[str], fy: int) -> Optional[float]:
-    us_gaap = companyfacts.get("facts", {}).get("us-gaap", {})
-    for tag in tags:
-        tag_obj = us_gaap.get(tag)
-        if not tag_obj:
-            continue
-        for _, entries in tag_obj.get("units", {}).items():
-            for entry in entries:
-                if entry.get("form") != "10-K":
-                    continue
-                if int(entry.get("fy", 0) or 0) != fy:
-                    continue
-                val = entry.get("val")
-                if isinstance(val, (int, float)):
-                    return float(val)
-    return None
-
-
 def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
     """
-    Pull latest fiscal year (anchored to revenue 10-K) figures for DCF / Graham / EV-EBITDA.
-    All amounts USD as reported; shares in units.
+    Pull figures from SEC companyfacts JSON. Strict: form 10-K, fp FY, latest filed per fy.
+    Operating window: last three fiscal years present on the primary revenue tag.
+    FCF = operating cash flow − |capital expenditures| using specified concept waterfalls.
     """
     out: dict[str, Any] = {
         "fiscal_year": None,
         "revenue": None,
+        "revenue_xbrl_tag": None,
         "net_income": None,
         "stockholders_equity": None,
+        "total_assets": None,
+        "retained_earnings": None,
         "fcf": None,
         "cfo": None,
         "capex": None,
         "ebitda": None,
         "operating_income": None,
         "depreciation": None,
+        "shares_outstanding": None,
         "shares_diluted": None,
+        "eps_basic": None,
         "eps_diluted": None,
         "long_term_debt": None,
+        "short_term_debt": None,
+        "current_portion_long_term_debt": None,
+        "total_debt": None,
         "debt_current": None,
         "cash": None,
         "dividends_paid": None,
@@ -54,6 +70,7 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
         "interest_expense": None,
         "income_tax_expense": None,
         "pretax_income": None,
+        "effective_tax_rate_pct": None,
         "historical_window": [],
         "ok": False,
     }
@@ -67,52 +84,29 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
         return out
 
     us_gaap = companyfacts.get("facts", {}).get("us-gaap", {})
-    revenue_fy: set[int] = set()
-    for tag in (
-        "RevenueFromContractWithCustomerExcludingAssessedTax",
-        "Revenues",
-        "SalesRevenueNet",
-    ):
-        tag_obj = us_gaap.get(tag)
-        if not tag_obj:
-            continue
-        for _, entries in tag_obj.get("units", {}).items():
-            for entry in entries:
-                if entry.get("form") != "10-K":
-                    continue
-                fy = entry.get("fy")
-                if fy:
-                    revenue_fy.add(int(fy))
-        if revenue_fy:
-            break
-    if not revenue_fy:
+    if not isinstance(us_gaap, dict):
         return out
-    fy = max(revenue_fy)
+
+    rev_tag, all_fy = collect_fiscal_years_from_revenue(us_gaap)
+    if not rev_tag or not all_fy:
+        return out
+
+    last_three = sorted(all_fy, reverse=True)[:3]
+    anchor_fy = last_three[0]
+    out["revenue_xbrl_tag"] = rev_tag
+    out["fiscal_year"] = anchor_fy
+    out["revenue"] = revenue_for_fy(us_gaap, anchor_fy, rev_tag)
 
     def _fcf_for_fy(fy_i: int) -> Optional[float]:
-        cfo_i = _value_for_fy(companyfacts, ["NetCashProvidedByUsedInOperatingActivities"], fy_i)
-        cap_i = _value_for_fy(companyfacts, ["PaymentsToAcquirePropertyPlantAndEquipment"], fy_i)
-        if cap_i is not None:
-            cap_i = abs(float(cap_i))
-        if cfo_i is not None and cap_i is not None:
-            return float(cfo_i) - cap_i
-        return None
+        cfo_i = waterfall_money(us_gaap, CFO_TAGS, fy_i)
+        cap_raw = waterfall_money(us_gaap, CAPEX_TAGS, fy_i)
+        if cfo_i is None or cap_raw is None:
+            return None
+        return float(cfo_i) - abs(float(cap_raw))
 
     def _dist_for_fy(fy_i: int) -> tuple[Optional[float], Optional[float], Optional[float]]:
-        dv = _value_for_fy(
-            companyfacts,
-            ["PaymentsOfDividends", "DividendsPaid", "DividendPaid"],
-            fy_i,
-        )
-        bv = _value_for_fy(
-            companyfacts,
-            [
-                "PaymentsForRepurchaseOfCommonStock",
-                "PaymentsForRepurchaseOfEquity",
-                "PaymentsForRepurchaseOfCommonAndPreferredStock",
-            ],
-            fy_i,
-        )
+        dv = waterfall_money(us_gaap, DIVIDEND_TAGS, fy_i)
+        bv = waterfall_money(us_gaap, BUYBACK_TAGS, fy_i)
         div_a = abs(float(dv)) if dv is not None else None
         bb_a = abs(float(bv)) if bv is not None else None
         tot = None
@@ -121,16 +115,13 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
         return div_a, bb_a, tot
 
     historical_window: list[dict[str, Any]] = []
-    for off in (4, 3, 2, 1, 0):
-        hfy = fy - off
-        if hfy <= 2000:
-            continue
+    for hfy in sorted(last_three):
         div_h, bb_h, dist_h = _dist_for_fy(hfy)
         historical_window.append(
             {
                 "fiscal_year": hfy,
                 "fcf": _fcf_for_fy(hfy),
-                "net_income": _value_for_fy(companyfacts, ["NetIncomeLoss"], hfy),
+                "net_income": waterfall_money(us_gaap, NET_INCOME_TAGS, hfy),
                 "dividends_paid": div_h,
                 "buybacks": bb_h,
                 "distributions": dist_h,
@@ -138,149 +129,85 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
         )
     out["historical_window"] = historical_window
 
-    out["fiscal_year"] = fy
-    out["revenue"] = _value_for_fy(
-        companyfacts,
-        [
-            "RevenueFromContractWithCustomerExcludingAssessedTax",
-            "Revenues",
-            "SalesRevenueNet",
-        ],
-        fy,
-    )
-    out["net_income"] = _value_for_fy(companyfacts, ["NetIncomeLoss"], fy)
-    out["stockholders_equity"] = _value_for_fy(companyfacts, ["StockholdersEquity"], fy)
-    out["cfo"] = _value_for_fy(companyfacts, ["NetCashProvidedByUsedInOperatingActivities"], fy)
-    capex = _value_for_fy(companyfacts, ["PaymentsToAcquirePropertyPlantAndEquipment"], fy)
-    if capex is not None:
-        capex = abs(capex)
-    out["capex"] = capex
-    if out["cfo"] is not None and capex is not None:
-        out["fcf"] = out["cfo"] - capex
+    fy = anchor_fy
+    out["net_income"] = waterfall_money(us_gaap, NET_INCOME_TAGS, fy)
+    out["stockholders_equity"] = waterfall_money(us_gaap, EQUITY_TAGS, fy)
+    out["total_assets"] = waterfall_money(us_gaap, TOTAL_ASSETS_TAGS, fy)
+    out["retained_earnings"] = waterfall_money(us_gaap, RETAINED_EARNINGS_TAGS, fy)
 
-    out["ebitda"] = _value_for_fy(
-        companyfacts,
-        [
-            "EarningsBeforeInterestTaxesDepreciationAmortization",
-            "EarningsBeforeInterestTaxesDepreciationAndAmortization",
-        ],
-        fy,
-    )
-    out["operating_income"] = _value_for_fy(companyfacts, ["OperatingIncomeLoss"], fy)
-    out["depreciation"] = _value_for_fy(
-        companyfacts,
-        [
-            "DepreciationDepletionAndAmortization",
-            "DepreciationAndAmortization",
-            "OperatingExpensesDepreciationAndAmortization",
-        ],
-        fy,
-    )
-    if out["ebitda"] is None and out["operating_income"] is not None and out["depreciation"] is not None:
-        out["ebitda"] = out["operating_income"] + abs(out["depreciation"])
+    out["cfo"] = waterfall_money(us_gaap, CFO_TAGS, fy)
+    capex_raw = waterfall_money(us_gaap, CAPEX_TAGS, fy)
+    out["capex"] = abs(float(capex_raw)) if capex_raw is not None else None
+    if out["cfo"] is not None and capex_raw is not None:
+        out["fcf"] = float(out["cfo"]) - abs(float(capex_raw))
 
-    out["shares_diluted"] = _value_for_fy(
-        companyfacts,
-        [
-            "WeightedAverageNumberOfDilutedSharesOutstanding",
-            "WeightedAverageNumberOfSharesOutstandingBasicAndDiluted",
-            "CommonStockSharesOutstanding",
-            "EntityCommonStockSharesOutstanding",
-        ],
-        fy,
-    )
-    out["eps_diluted"] = _value_for_fy(
-        companyfacts,
-        [
-            "EarningsPerShareDiluted",
-            "EarningsPerShareBasic",
-        ],
-        fy,
-    )
-    if out["eps_diluted"] is None and out["net_income"] and out["shares_diluted"] and out["shares_diluted"] > 0:
-        out["eps_diluted"] = out["net_income"] / out["shares_diluted"]
+    out["ebitda"] = waterfall_money(us_gaap, EBITDA_DIRECT_TAGS, fy)
+    out["operating_income"] = waterfall_money(us_gaap, OPERATING_INCOME_TAGS, fy)
+    out["depreciation"] = waterfall_money(us_gaap, DEPRECIATION_TAGS, fy)
 
-    out["long_term_debt"] = _value_for_fy(
-        companyfacts,
-        ["LongTermDebtNoncurrent", "LongTermDebt"],
-        fy,
-    )
-    out["debt_current"] = _value_for_fy(companyfacts, ["DebtCurrent", "ShortTermBorrowings"], fy)
-    out["cash"] = _value_for_fy(
-        companyfacts,
-        ["CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsAndRestrictedCash"],
-        fy,
-    )
+    sh = shares_outstanding_for_fy(us_gaap, fy)
+    out["shares_outstanding"] = sh
+    out["shares_diluted"] = sh
 
-    div_raw = _value_for_fy(
-        companyfacts,
-        [
-            "PaymentsOfDividends",
-            "DividendsPaid",
-            "DividendPaid",
-        ],
-        fy,
-    )
+    out["eps_basic"] = waterfall_eps_basic(us_gaap, EPS_BASIC_TAGS, fy)
+    out["eps_diluted"] = None
+
+    lt, st, curp, tdebt = total_debt_for_fy(us_gaap, fy)
+    out["long_term_debt"] = lt
+    out["short_term_debt"] = st
+    out["current_portion_long_term_debt"] = curp
+    out["total_debt"] = tdebt
+    if st is not None or curp is not None:
+        out["debt_current"] = (st or 0.0) + (curp or 0.0)
+    else:
+        out["debt_current"] = None
+
+    out["cash"] = waterfall_money(us_gaap, CASH_TAGS, fy)
+
+    div_raw = waterfall_money(us_gaap, DIVIDEND_TAGS, fy)
     if div_raw is not None:
         out["dividends_paid"] = abs(float(div_raw))
 
-    bb_raw = _value_for_fy(
-        companyfacts,
-        [
-            "PaymentsForRepurchaseOfCommonStock",
-            "PaymentsForRepurchaseOfEquity",
-            "PaymentsForRepurchaseOfCommonAndPreferredStock",
-        ],
-        fy,
-    )
+    bb_raw = waterfall_money(us_gaap, BUYBACK_TAGS, fy)
     if bb_raw is not None:
         out["buybacks"] = abs(float(bb_raw))
 
-    int_raw = _value_for_fy(
-        companyfacts,
-        ["InterestExpense", "InterestExpenseDebt", "InterestAndDebtExpense"],
-        fy,
-    )
-    if int_raw is not None:
-        out["interest_expense"] = abs(float(int_raw))
+    out["interest_expense"] = waterfall_money(us_gaap, INTEREST_EXPENSE_TAGS, fy)
 
-    tax_raw = _value_for_fy(
-        companyfacts,
-        [
-            "IncomeTaxExpenseBenefit",
-            "IncomeTaxExpenseContinuingOperations",
-            "IncomeTaxExpense",
-        ],
-        fy,
-    )
+    tax_raw = waterfall_money(us_gaap, TAX_PROVISION_TAGS, fy)
     if tax_raw is not None:
-        out["income_tax_expense"] = abs(float(tax_raw))
+        out["income_tax_expense"] = float(tax_raw)
 
-    pre_raw = _value_for_fy(
-        companyfacts,
-        [
-            "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
-            "IncomeBeforeIncomeTaxes",
-            "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
-        ],
-        fy,
-    )
+    pre_raw = waterfall_money(us_gaap, INCOME_BEFORE_TAX_TAGS, fy)
     if pre_raw is not None:
         out["pretax_income"] = float(pre_raw)
 
-    out["ok"] = bool(out["revenue"] and out["fiscal_year"])
+    out["effective_tax_rate_pct"] = effective_tax_rate_pct(out.get("income_tax_expense"), out.get("pretax_income"))
+
+    out["ok"] = bool(out["revenue"] is not None and out["fiscal_year"])
     return out
 
 
 def net_debt_from_inputs(v: dict[str, Any]) -> float:
-    debt = (v.get("long_term_debt") or 0) + (v.get("debt_current") or 0)
-    cash = v.get("cash") or 0
-    return max(0.0, float(debt) - float(cash))
+    td = v.get("total_debt")
+    if td is not None:
+        debt = float(td)
+    else:
+        lt = float(v.get("long_term_debt") or 0)
+        st = float(v.get("short_term_debt") or 0)
+        cp = float(v.get("current_portion_long_term_debt") or 0)
+        dc = v.get("debt_current")
+        if dc is not None:
+            debt = lt + float(dc)
+        else:
+            debt = lt + st + cp
+    cash = float(v.get("cash") or 0)
+    return max(0.0, debt - cash)
 
 
 def book_value_per_share(v: dict[str, Any]) -> Optional[float]:
     eq = v.get("stockholders_equity")
-    sh = v.get("shares_diluted")
+    sh = v.get("shares_outstanding") or v.get("shares_diluted")
     if eq is None or not sh or float(sh) <= 0:
         return None
     return float(eq) / float(sh)

@@ -533,16 +533,6 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
     news_rows = fetch_investor_news(company)
 
     sec_v = fetch_latest_valuation_inputs(company.ticker)
-    latest_m = (
-        db.query(FinancialMetric)
-        .filter(FinancialMetric.company_id == company.id)
-        .order_by(FinancialMetric.fiscal_year.desc())
-        .first()
-    )
-    if sec_v.get("fcf") is None and latest_m and latest_m.fcf is not None:
-        sec_v["fcf"] = float(latest_m.fcf)
-    if sec_v.get("shares_diluted") is None and latest_m and latest_m.shares_outstanding:
-        sec_v["shares_diluted"] = float(latest_m.shares_outstanding)
 
     v_bundle = build_valuation_bundle(
         ticker=company.ticker,
@@ -619,17 +609,6 @@ def api_valuation_standalone(ticker: str, db: Session = Depends(get_db)):
 
     sec_v = fetch_latest_valuation_inputs(t)
     live_q = fetch_live_quote(t)
-    if company:
-        latest_m = (
-            db.query(FinancialMetric)
-            .filter(FinancialMetric.company_id == company.id)
-            .order_by(FinancialMetric.fiscal_year.desc())
-            .first()
-        )
-        if sec_v.get("fcf") is None and latest_m and latest_m.fcf is not None:
-            sec_v["fcf"] = float(latest_m.fcf)
-        if sec_v.get("shares_diluted") is None and latest_m and latest_m.shares_outstanding:
-            sec_v["shares_diluted"] = float(latest_m.shares_outstanding)
 
     v_bundle = build_valuation_bundle(
         ticker=t,

@@ -1191,8 +1191,7 @@
       <div class="valuation-search-card">
         <h2>Valuation lab</h2>
         <p class="panel-intro" style="margin-bottom:12px">
-          Search any US ticker — models use the same methodology as recommendation cards: <strong>five years of SEC history</strong> (where available),
-          a <strong>five-year forward projection</strong> (10-year operating window), then <strong>terminal value</strong>. All interaction runs in your browser on the payload from this server.
+          Search any US ticker — fundamentals are <strong>strict 10-K / FY facts</strong> from SEC Company Facts (three most recent fiscal years on file), plus a <strong>five-year forward projection</strong> and <strong>terminal value</strong>. Sliders are model inputs only. All interaction runs in your browser on the payload from this server.
         </p>
         <form class="ticker-search" style="max-width:440px" onsubmit="runValuationSearch(event)">
           <input id="valuationTickerInput" type="text" maxlength="12" placeholder="Ticker (e.g. MSFT)" autocomplete="off" />
@@ -1280,6 +1279,11 @@ function upsidePct(intrinsic, price) {
   return ((i - p) / p) * 100;
 }
 
+function uiNum(v, fallback) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function computeMeridianDcfDetail(payload, g1, g2, gTerm, wacc) {
   const fcf0 = Number(payload.fcf);
   const shares = Number(payload.shares);
@@ -1291,7 +1295,7 @@ function computeMeridianDcfDetail(payload, g1, g2, gTerm, wacc) {
   const gt = gTerm / 100;
   if (w <= gt + 0.001) w = gt + 0.005;
   const histArr = payload.dcf_historical_fcf || [];
-  const histFcf = [0, 1, 2, 3, 4].map((i) => {
+  const histFcf = [0, 1, 2].map((i) => {
     const row = histArr[i];
     return row != null && row.fcf != null && Number.isFinite(Number(row.fcf)) ? Number(row.fcf) : null;
   });
@@ -1381,20 +1385,21 @@ function buildValuationSpreadsheetHtml(card) {
 
   const st = computeGgmState(card, V);
   const gg = V.ggm || {};
-  const dg = ggmSlider(card, "distGr") ?? Number(gg.distribution_growth_pct_default) ?? 5;
-  const tg = ggmSlider(card, "termGr") ?? Number(gg.terminal_growth_pct_default) ?? 3;
-  const dp = ggmSlider(card, "divPct") ?? Number(gg.dividend_payout_pct_default) ?? 25;
-  const bp = ggmSlider(card, "bbPct") ?? Number(gg.buyback_rate_pct_default) ?? 15;
-  const rf = ggmSlider(card, "rf") ?? Number(gg.risk_free_pct_default) ?? 4.5;
-  const beta = ggmSlider(card, "beta") ?? Number(gg.beta_default) ?? 1;
-  const erp = ggmSlider(card, "erp") ?? Number(gg.erp_pct_default) ?? 5.5;
-  const intRate = ggmSlider(card, "intRate") ?? Number(gg.interest_rate_pct_default) ?? 5;
-  const taxRate = ggmSlider(card, "taxRate") ?? Number(gg.tax_rate_pct_default) ?? 21;
+  const z = 0;
+  const dg = ggmSlider(card, "distGr") ?? uiNum(gg.distribution_growth_pct_default, z);
+  const tg = ggmSlider(card, "termGr") ?? uiNum(gg.terminal_growth_pct_default, z);
+  const dp = ggmSlider(card, "divPct") ?? uiNum(gg.dividend_payout_pct_default, z);
+  const bp = ggmSlider(card, "bbPct") ?? uiNum(gg.buyback_rate_pct_default, z);
+  const rf = ggmSlider(card, "rf") ?? uiNum(gg.risk_free_pct_default, z);
+  const beta = ggmSlider(card, "beta") ?? uiNum(gg.beta_default, z);
+  const erp = ggmSlider(card, "erp") ?? uiNum(gg.erp_pct_default, z);
+  const intRate = ggmSlider(card, "intRate") ?? uiNum(gg.interest_rate_pct_default, z);
+  const taxRate = ggmSlider(card, "taxRate") ?? uiNum(gg.tax_rate_pct_default, z);
 
   const assumptions = [];
   assumptions.push(["Current price (quote)", fmtUsdVal(V.current_price)]);
   assumptions.push(["Latest FY (anchor)", V.fiscal_year != null ? "FY" + String(V.fiscal_year) : "—"]);
-  assumptions.push(["Shares (diluted, model)", compactMoneyVal(V.shares)]);
+  assumptions.push(["Shares outstanding (10-K FY)", compactMoneyVal(V.shares)]);
   assumptions.push(["Net debt (model)", compactMoneyVal(V.net_debt)]);
   assumptions.push(["Latest FY FCF (DCF anchor)", compactMoneyVal(V.fcf)]);
   if (Number.isFinite(g1)) {
@@ -1427,11 +1432,11 @@ function buildValuationSpreadsheetHtml(card) {
     "</tbody></table>";
 
   const colHead =
-    "<thead><tr><th>Line</th><th>FY−4</th><th>FY−3</th><th>FY−2</th><th>FY−1</th><th>FY0</th><th>E+1</th><th>E+2</th><th>E+3</th><th>E+4</th><th>E+5</th><th>Terminal</th></tr></thead>";
+    "<thead><tr><th>Line</th><th>FY−2</th><th>FY−1</th><th>FY0</th><th>E+1</th><th>E+2</th><th>E+3</th><th>E+4</th><th>E+5</th><th>Terminal</th></tr></thead>";
 
   const hist = V.dcf_historical_fcf || [];
   let fyRowDcf = "<tr class=\"valuation-sheet-fy-row\"><td>SEC fiscal year</td>";
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 3; i++) {
     const y = hist[i] && hist[i].fiscal_year;
     fyRowDcf += "<td class=\"font-mono\">" + (y != null ? esc(String(y)) : "—") + "</td>";
   }
@@ -1447,52 +1452,52 @@ function buildValuationSpreadsheetHtml(card) {
     dcfBody +=
       "<tr><td>Historical FCFF (SEC)</td>" + hcells + sheetRepeatTd("—", 5) + "<td>—</td></tr>";
     dcfBody +=
-      "<tr><td>Projected FCFF</td>" + sheetRepeatTd("—", 5) + fcells + "<td>—</td></tr>";
+      "<tr><td>Projected FCFF</td>" + sheetRepeatTd("—", 3) + fcells + "<td>—</td></tr>";
     dcfBody +=
       "<tr><td>PV of FCFF @ WACC</td>" +
-      sheetRepeatTd("—", 5) +
+      sheetRepeatTd("—", 3) +
       pvcells +
       "<td>" +
       esc(compactMoneyVal(dcf.pvTv)) +
       "</td></tr>";
     dcfBody +=
       "<tr><td>Terminal value (undiscounted)</td>" +
-      sheetRepeatTd("—", 10) +
+      sheetRepeatTd("—", 8) +
       "<td>" +
       esc(compactMoneyVal(dcf.tv)) +
       "</td></tr>";
     dcfBody +=
       "<tr><td><strong>PV firm (sum)</strong></td>" +
-      sheetRepeatTd("—", 10) +
+      sheetRepeatTd("—", 8) +
       "<td><strong>" +
       esc(compactMoneyVal(dcf.pvFirm)) +
       "</strong></td></tr>";
     dcfBody +=
       "<tr><td>Less: net debt</td>" +
-      sheetRepeatTd("—", 10) +
+      sheetRepeatTd("—", 8) +
       "<td>" +
       esc(compactMoneyVal(dcf.netDebt)) +
       "</td></tr>";
     dcfBody +=
       "<tr><td><strong>Equity value</strong></td>" +
-      sheetRepeatTd("—", 10) +
+      sheetRepeatTd("—", 8) +
       "<td><strong>" +
       esc(compactMoneyVal(dcf.equityValue)) +
       "</strong></td></tr>";
     dcfBody +=
       "<tr><td><strong>Intrinsic value / share</strong></td>" +
-      sheetRepeatTd("—", 10) +
+      sheetRepeatTd("—", 8) +
       "<td><strong>" +
       fmtUsdVal(dcf.perShare) +
       "</strong></td></tr>";
   } else {
     dcfBody =
-      "<tr><td colspan=\"12\">DCF not computed (need positive FCF and shares; WACC must exceed terminal growth).</td></tr>";
+      "<tr><td colspan=\"10\">DCF not computed (need positive FCF and shares; WACC must exceed terminal growth).</td></tr>";
   }
 
   const gh = gg.historical_distributions || [];
   let fyRowGgm = "<tr class=\"valuation-sheet-fy-row\"><td>SEC fiscal year</td>";
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 3; i++) {
     const y = gh[i] && gh[i].fiscal_year;
     fyRowGgm += "<td class=\"font-mono\">" + (y != null ? esc(String(y)) : "—") + "</td>";
   }
@@ -1500,7 +1505,7 @@ function buildValuationSpreadsheetHtml(card) {
 
   let ggmBody = "";
   if (st.ok) {
-    const distHistCells = [0, 1, 2, 3, 4]
+    const distHistCells = [0, 1, 2]
       .map((i) => {
         const x = st.histDistVals[i];
         return "<td>" + (x != null && Number.isFinite(x) ? esc(compactMoneyVal(x)) : "—") + "</td>";
@@ -1516,32 +1521,32 @@ function buildValuationSpreadsheetHtml(card) {
       "</td></tr>";
     ggmBody +=
       "<tr><td>PV of distributions</td>" +
-      sheetRepeatTd("—", 5) +
+      sheetRepeatTd("—", 3) +
       st.pvD.map((x) => "<td>" + esc(compactMoneyVal(x)) + "</td>").join("") +
       "<td>" +
       (st.pvTv != null ? esc(compactMoneyVal(st.pvTv)) : "—") +
       "</td></tr>";
     ggmBody +=
       "<tr><td>Terminal value (undiscounted)</td>" +
-      sheetRepeatTd("—", 10) +
+      sheetRepeatTd("—", 8) +
       "<td>" +
       (st.tv != null ? esc(compactMoneyVal(st.tv)) : "—") +
       "</td></tr>";
     ggmBody +=
       "<tr><td><strong>Equity value (PV sum)</strong></td>" +
-      sheetRepeatTd("—", 10) +
+      sheetRepeatTd("—", 8) +
       "<td><strong>" +
       esc(compactMoneyVal(st.total)) +
       "</strong></td></tr>";
     ggmBody +=
       "<tr><td><strong>Intrinsic value / share</strong></td>" +
-      sheetRepeatTd("—", 10) +
+      sheetRepeatTd("—", 8) +
       "<td><strong>" +
       (st.ivPerShare != null ? fmtUsdVal(st.ivPerShare) : "—") +
       "</strong></td></tr>";
   } else {
     ggmBody =
-      "<tr><td colspan=\"12\">GGM not available (net income or other inputs missing).</td></tr>";
+      "<tr><td colspan=\"10\">GGM not available (net income or other inputs missing).</td></tr>";
   }
 
   const dcfIv = dcf ? dcf.perShare : null;
@@ -1559,7 +1564,7 @@ function buildValuationSpreadsheetHtml(card) {
     "</td></tr></tbody></table>";
 
   return (
-    '<p class="body-prose" style="margin:0 0 12px;font-size:13px">Same methodology as the valuation tab: <strong>5 years SEC actuals</strong> + <strong>5-year forecast</strong> + terminal. Numbers reflect <strong>current slider settings</strong> on this card.</p>' +
+    '<p class="body-prose" style="margin:0 0 12px;font-size:13px">Same methodology as the valuation tab: <strong>three fiscal years of 10-K FY facts</strong> (SEC) + <strong>five-year forecast</strong> + terminal. Numbers reflect <strong>current slider settings</strong> on this card.</p>' +
     '<div class="valuation-sheet-section-title">Assumptions (live)</div>' +
     assumeHtml +
     '<div class="valuation-sheet-section-title">DCF — FCFF to equity</div>' +
@@ -1695,15 +1700,16 @@ function syncGgmSliderLabels(card) {
 function computeGgmState(card, payload) {
   const g = payload.ggm || {};
   const ni = Number(g.net_income);
-  const distGr = ggmSlider(card, "distGr") ?? Number(g.distribution_growth_pct_default) ?? 5;
-  const termGr = ggmSlider(card, "termGr") ?? Number(g.terminal_growth_pct_default) ?? 3;
-  const divPct = ggmSlider(card, "divPct") ?? Number(g.dividend_payout_pct_default) ?? 25;
-  const bbPct = ggmSlider(card, "bbPct") ?? Number(g.buyback_rate_pct_default) ?? 15;
-  const rf = ggmSlider(card, "rf") ?? Number(g.risk_free_pct_default) ?? 4.5;
-  const beta = ggmSlider(card, "beta") ?? Number(g.beta_default) ?? 1;
-  const erp = ggmSlider(card, "erp") ?? Number(g.erp_pct_default) ?? 5.5;
-  const intRate = ggmSlider(card, "intRate") ?? Number(g.interest_rate_pct_default) ?? 5;
-  const taxRate = ggmSlider(card, "taxRate") ?? Number(g.tax_rate_pct_default) ?? 21;
+  const z = 0;
+  const distGr = ggmSlider(card, "distGr") ?? uiNum(g.distribution_growth_pct_default, z);
+  const termGr = ggmSlider(card, "termGr") ?? uiNum(g.terminal_growth_pct_default, z);
+  const divPct = ggmSlider(card, "divPct") ?? uiNum(g.dividend_payout_pct_default, z);
+  const bbPct = ggmSlider(card, "bbPct") ?? uiNum(g.buyback_rate_pct_default, z);
+  const rf = ggmSlider(card, "rf") ?? uiNum(g.risk_free_pct_default, z);
+  const beta = ggmSlider(card, "beta") ?? uiNum(g.beta_default, z);
+  const erp = ggmSlider(card, "erp") ?? uiNum(g.erp_pct_default, z);
+  const intRate = ggmSlider(card, "intRate") ?? uiNum(g.interest_rate_pct_default, z);
+  const taxRate = ggmSlider(card, "taxRate") ?? uiNum(g.tax_rate_pct_default, z);
 
   const shInp = card.querySelector(".ggm-shares");
   let shares = shInp && shInp.value !== "" ? parseFloat(shInp.value) : NaN;
@@ -1747,14 +1753,14 @@ function computeGgmState(card, payload) {
   }
 
   const hist = Array.isArray(g.historical_distributions) ? g.historical_distributions : [];
-  const histDistVals = [0, 1, 2, 3, 4].map((idx) => {
+  const histDistVals = [0, 1, 2].map((idx) => {
     const row = hist[idx];
     if (!row || row.distributions == null) return null;
     const x = Number(row.distributions);
     return Number.isFinite(x) ? x : null;
   });
   let lastHistDist = null;
-  for (let i = 4; i >= 0; i--) {
+  for (let i = 2; i >= 0; i--) {
     if (histDistVals[i] != null && Number.isFinite(histDistVals[i]) && histDistVals[i] > 0) {
       lastHistDist = histDistVals[i];
       break;
@@ -1943,46 +1949,44 @@ function updateGgmCard(card) {
       htd(0) +
       htd(1) +
       htd(2) +
-      htd(3) +
-      htd(4) +
       st.proj.map((x) => "<td>" + fmtBillionsHtml(x) + "</td>").join("") +
       "<td>" +
       (st.tv != null ? fmtBillionsHtml(st.d6) + " <span style=\"font-size:9px;color:var(--text-muted)\">D6</span>" : "—") +
       "</td></tr>";
     const rowTvd =
       "<tr><td>Time value discount (wait cost)</td>" +
-      "<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
-      st.tvd.map((x) => fmtBillionsHtml(x)).join("</td><td>") +
-      "</td><td>" +
+      sheetRepeatTd("—", 3) +
+      st.tvd.map((x) => "<td>" + fmtBillionsHtml(x) + "</td>").join("") +
+      "<td>" +
       (st.tvDiscountCost != null ? fmtBillionsHtml(st.tvDiscountCost) : "—") +
       "</td></tr>";
     const rowPv =
       "<tr><td>PV of distributions</td>" +
-      "<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
-      st.pvD.map((x) => fmtBillionsHtml(x)).join("</td><td>") +
-      "</td><td>" +
+      sheetRepeatTd("—", 3) +
+      st.pvD.map((x) => "<td>" + fmtBillionsHtml(x) + "</td>").join("") +
+      "<td>" +
       (st.pvTv != null ? fmtBillionsHtml(st.pvTv) : "—") +
       "</td></tr>";
     const rowTv =
       "<tr><td>Terminal value (undiscounted)</td>" +
-      "<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
+      "<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
       (st.tv != null ? fmtBillionsHtml(st.tv) : "—") +
       "</td></tr>";
     const rowCum =
       "<tr><td>Est. market value (cumulative)</td>" +
-      "<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
+      sheetRepeatTd("—", 3) +
       st.cumRow.map((x) => "<td>" + fmtBillionsHtml(x) + "</td>").join("") +
-      "</td><td>" +
+      "<td>" +
       fmtBillionsHtml(st.total) +
       "</td></tr>";
     const rowPx =
       "<tr><td>Est. price / share</td>" +
-      "<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
+      "<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
       (st.ivPerShare != null ? fmtUsdVal(st.ivPerShare) : "—") +
       "</td></tr>";
     tbody.innerHTML = rowDist + rowTvd + rowPv + rowTv + rowCum + rowPx;
   } else if (tbody) {
-    tbody.innerHTML = "<tr><td colspan=\"12\">Insufficient data for GGM table.</td></tr>";
+    tbody.innerHTML = "<tr><td colspan=\"10\">Insufficient data for GGM table.</td></tr>";
   }
 
   const waccBody = card.querySelector(".ggm-wacc-tbody");
@@ -2113,15 +2117,16 @@ function updateValuationRangeBar(card) {
 function buildGgmPanelHtml(v, tAttr, fy) {
   const gg = v.ggm || {};
   const hasNi = gg.net_income != null && Number(gg.net_income) > 0;
-  const dg = Number(gg.distribution_growth_pct_default) || 5;
-  const tg = Number(gg.terminal_growth_pct_default) || 3;
-  const dp = Number(gg.dividend_payout_pct_default) || 25;
-  const bp = Number(gg.buyback_rate_pct_default) || 15;
-  const rf = Number(gg.risk_free_pct_default) || 4.5;
-  const beta = Number(gg.beta_default) || 1;
-  const erp = Number(gg.erp_pct_default) || 5.5;
-  const ir = Number(gg.interest_rate_pct_default) || 5;
-  const tr = Number(gg.tax_rate_pct_default) || 21;
+  const z = 0;
+  const dg = uiNum(gg.distribution_growth_pct_default, z);
+  const tg = uiNum(gg.terminal_growth_pct_default, z);
+  const dp = uiNum(gg.dividend_payout_pct_default, z);
+  const bp = uiNum(gg.buyback_rate_pct_default, z);
+  const rf = uiNum(gg.risk_free_pct_default, z);
+  const beta = uiNum(gg.beta_default, z);
+  const erp = uiNum(gg.erp_pct_default, z);
+  const ir = uiNum(gg.interest_rate_pct_default, z);
+  const tr = uiNum(gg.tax_rate_pct_default, z);
   const shDef = gg.shares_default != null && Number.isFinite(Number(gg.shares_default)) ? Math.round(Number(gg.shares_default)) : "";
 
   if (!hasNi) {
@@ -2135,7 +2140,7 @@ function buildGgmPanelHtml(v, tAttr, fy) {
   return (
     '<div class="val-panel val-panel-ggm">' +
     '<div class="ggm-section-label">Gordon Growth Model — Distributions to Owners Approach</div>' +
-    '<p class="val-meta">Five fiscal years of distributions from SEC (table) + five-year forward path + terminal (sell-side style). Base ' +
+    '<p class="val-meta">Three fiscal years of 10-K FY distributions (SEC) + five-year forward path + terminal. Base ' +
     esc(fy) +
     " · NI <span class=\"font-mono\">" +
     esc(compactMoneyVal(gg.net_income)) +
@@ -2213,10 +2218,10 @@ function buildGgmPanelHtml(v, tAttr, fy) {
     '<div class="ggm-summary-line ggm-terminal-split" style="margin-top:8px"></div>' +
     "</div>" +
     '<details class="ggm-details">' +
-    "<summary>5-year SEC history + 5-year projection + terminal</summary>" +
+    "<summary>3-year 10-K FY history + 5-year projection + terminal</summary>" +
     '<div class="ggm-table-wrap">' +
     '<table class="ggm-table">' +
-    "<thead><tr><th>Line</th><th>FY−4</th><th>FY−3</th><th>FY−2</th><th>FY−1</th><th>FY0</th><th>E+1</th><th>E+2</th><th>E+3</th><th>E+4</th><th>E+5</th><th>Terminal</th></tr></thead>" +
+    "<thead><tr><th>Line</th><th>FY−2</th><th>FY−1</th><th>FY0</th><th>E+1</th><th>E+2</th><th>E+3</th><th>E+4</th><th>E+5</th><th>Terminal</th></tr></thead>" +
     '<tbody class="ggm-lecture-tbody"></tbody></table></div></details>' +
     '<details class="ggm-details" style="margin-top:8px">' +
     "<summary>WACC breakdown</summary>" +
@@ -2305,7 +2310,7 @@ function buildValuationPanel(d, item) {
   const histFcfArr = v.dcf_historical_fcf || [];
   const histFcfLine =
     histFcfArr.length > 0
-      ? '<p class="val-meta" style="margin-top:6px">Historical FCF (SEC): ' +
+      ? '<p class="val-meta" style="margin-top:6px">Historical FCF (10-K FY, SEC): ' +
         histFcfArr
           .map(
             (h) =>
@@ -2316,12 +2321,12 @@ function buildValuationPanel(d, item) {
               "</span>"
           )
           .join(" · ") +
-        ". <strong>Discounted</strong> period = 5 forward years + terminal; anchor = latest FY FCF below.</p>"
+        ". <strong>Discounted</strong> period = five forward years + terminal; anchor = latest FY FCF (CFO − |CapEx| concepts per waterfall).</p>"
       : "";
 
   return (
     '<div class="meridian-tab-panel" data-tab="valuation" role="tabpanel">' +
-    '<p class="sec-label">5 Yr SEC history · 5 Yr forecast · terminal (10-year window + TV)</p>' +
+    '<p class="sec-label">3 Yr 10-K FY (SEC) · 5 Yr forecast · terminal</p>' +
     '<button type="button" class="btn btn-ghost valuation-open-sheet" style="font-size:11px;margin:-4px 0 14px">View full model (spreadsheet)</button>' +
     '<div class="val-dcf-ggm-row">' +
     '<div class="val-panel val-panel-dcf val-dcf-card">' +
@@ -2330,7 +2335,7 @@ function buildValuationPanel(d, item) {
     fy +
     '): <span class="font-mono">' +
     esc(compactMoneyVal(v.fcf)) +
-    "</span> · Shares (diluted): <span class=\"font-mono\">" +
+    "</span> · Shares outstanding (10-K FY): <span class=\"font-mono\">" +
     esc(compactMoneyVal(v.shares)) +
     "</span></p>" +
     histFcfLine +
@@ -2428,7 +2433,7 @@ function buildValuationPanel(d, item) {
     '<div class="val-panel-title">3 · Graham number</div>' +
     '<p class="val-meta">√(22.5 × EPS × book value per share) from SEC facts where available.</p>' +
     '<div class="val-metrics">' +
-    '<div class="val-metric"><span>Diluted EPS</span><span class="font-mono">' +
+    '<div class="val-metric"><span>Basic EPS (10-K FY)</span><span class="font-mono">' +
     (v.eps != null && Number.isFinite(Number(v.eps)) ? Number(v.eps).toFixed(2) : "N/A") +
     "</span></div>" +
     '<div class="val-metric"><span>Book value / share</span><span class="font-mono">' +

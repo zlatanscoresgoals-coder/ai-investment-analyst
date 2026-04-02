@@ -131,30 +131,34 @@ def ggm_inputs_from_sec(
 ) -> dict[str, Any]:
     """Base inputs for frontend Gordon Growth model (distributions + WACC building blocks)."""
     ni = sec_inputs.get("net_income")
-    div = float(sec_inputs.get("dividends_paid") or 0.0)
-    bb = float(sec_inputs.get("buybacks") or 0.0)
-    dist_act = div + bb
+    div_v = sec_inputs.get("dividends_paid")
+    bb_v = sec_inputs.get("buybacks")
+    div = float(div_v) if div_v is not None else 0.0
+    bb = float(bb_v) if bb_v is not None else 0.0
+    dist_act = div + bb if (div_v is not None or bb_v is not None) else None
 
     div_pct: Optional[float] = None
     bb_pct: Optional[float] = None
     if ni is not None and float(ni) > 0:
         fni = float(ni)
-        div_pct = min(100.0, max(0.0, div / fni * 100.0))
-        bb_pct = min(100.0, max(0.0, bb / fni * 100.0))
+        if div_v is not None:
+            div_pct = min(100.0, max(0.0, div / fni * 100.0))
+        if bb_v is not None:
+            bb_pct = min(100.0, max(0.0, bb / fni * 100.0))
 
-    tax = sec_inputs.get("income_tax_expense")
-    pretax = sec_inputs.get("pretax_income")
-    tax_rate = 21.0
-    if pretax is not None and float(pretax) > 0 and tax is not None:
-        tax_rate = min(35.0, max(0.0, float(tax) / float(pretax) * 100.0))
+    tax_rate: Optional[float] = sec_inputs.get("effective_tax_rate_pct")
 
-    debt = float(sec_inputs.get("long_term_debt") or 0) + float(sec_inputs.get("debt_current") or 0)
+    td = sec_inputs.get("total_debt")
+    if td is not None:
+        debt = float(td)
+    else:
+        debt = float(sec_inputs.get("long_term_debt") or 0) + float(sec_inputs.get("debt_current") or 0)
     cash = float(sec_inputs.get("cash") or 0)
     int_exp = sec_inputs.get("interest_expense")
 
-    int_rate_pct = 5.0
-    if debt > 0 and int_exp is not None and float(int_exp) > 0:
-        int_rate_pct = min(20.0, max(0.0, float(int_exp) / debt * 100.0))
+    int_rate_pct: Optional[float] = None
+    if debt > 0 and int_exp is not None and float(int_exp) != 0:
+        int_rate_pct = min(20.0, max(0.0, abs(float(int_exp)) / debt * 100.0))
 
     sh = float(shares) if shares is not None and float(shares) > 0 else None
     px = float(current_price) if current_price is not None and float(current_price) > 0 else None
@@ -179,16 +183,16 @@ def ggm_inputs_from_sec(
 
     return {
         "net_income": float(ni) if ni is not None else None,
-        "dividends_paid": div if div else None,
-        "buybacks": bb if bb else None,
-        "distributions_actual": dist_act if dist_act > 0 else None,
-        "dividend_payout_pct_default": div_pct if div_pct is not None else 25.0,
-        "buyback_rate_pct_default": bb_pct if bb_pct is not None else 15.0,
-        "distribution_growth_pct_default": 5.0,
-        "terminal_growth_pct_default": 3.0,
-        "risk_free_pct_default": 4.5,
-        "beta_default": 1.0,
-        "erp_pct_default": 5.5,
+        "dividends_paid": float(div_v) if div_v is not None else None,
+        "buybacks": float(bb_v) if bb_v is not None else None,
+        "distributions_actual": dist_act,
+        "dividend_payout_pct_default": div_pct,
+        "buyback_rate_pct_default": bb_pct,
+        "distribution_growth_pct_default": None,
+        "terminal_growth_pct_default": None,
+        "risk_free_pct_default": None,
+        "beta_default": None,
+        "erp_pct_default": None,
         "interest_rate_pct_default": int_rate_pct,
         "tax_rate_pct_default": tax_rate,
         "debt_book": debt,
@@ -218,8 +222,12 @@ def build_valuation_bundle(
     """Assemble JSON for API + dashboard (defaults match slider defaults)."""
     fy = sec_inputs.get("fiscal_year")
     fcf = sec_inputs.get("fcf")
-    shares = sec_inputs.get("shares_diluted")
-    eps = sec_inputs.get("eps_diluted")
+    shares = sec_inputs.get("shares_outstanding")
+    if shares is None:
+        shares = sec_inputs.get("shares_diluted")
+    eps = sec_inputs.get("eps_basic")
+    if eps is None:
+        eps = sec_inputs.get("eps_diluted")
     ebitda = sec_inputs.get("ebitda")
     nd = net_debt_from_inputs(sec_inputs)
 
@@ -287,6 +295,7 @@ def build_valuation_bundle(
         "ticker": ticker,
         "company_name": company_name,
         "fiscal_year": fy,
+        "revenue_xbrl_tag": sec_inputs.get("revenue_xbrl_tag"),
         "dcf_historical_fcf": hist_fcf,
         "projection_years": 5,
         "fcf": fcf,
