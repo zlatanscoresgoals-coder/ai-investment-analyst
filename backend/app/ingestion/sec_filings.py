@@ -63,14 +63,48 @@ def get_submission_json_for_ticker(ticker: str) -> Optional[dict[str, Any]]:
         return None
 
 
+def _coarse_sector_from_sic(sic_raw: Any) -> Optional[str]:
+    """Broad bucket when SEC submissions omit ownerOrg (SIC division from first two digits)."""
+    if sic_raw is None:
+        return None
+    digits = "".join(c for c in str(sic_raw).strip() if c.isdigit())
+    if len(digits) < 2:
+        return None
+    try:
+        n = int(digits[:2])
+    except ValueError:
+        return None
+    if n <= 9:
+        return "Agriculture, Forestry & Fishing"
+    if n <= 14:
+        return "Mining"
+    if n <= 17:
+        return "Construction"
+    if n <= 39:
+        return "Manufacturing"
+    if n <= 49:
+        return "Transportation, Communications & Utilities"
+    if n <= 51:
+        return "Wholesale Trade"
+    if n <= 59:
+        return "Retail Trade"
+    if n <= 67:
+        return "Finance, Insurance & Real Estate"
+    if n <= 89:
+        return "Services"
+    return "Public Administration"
+
+
 def metadata_from_submission(submission: dict[str, Any]) -> dict[str, Optional[str]]:
-    """Legal name, broad sector bucket (SEC ownerOrg), and SIC industry line."""
+    """Legal name, broad sector bucket (SEC ownerOrg or SIC-derived), and SIC industry line."""
     name = (submission.get("name") or "").strip() or None
     industry = (submission.get("sicDescription") or "").strip() or None
     owner = (submission.get("ownerOrg") or "").strip()
     sector: Optional[str] = None
     if owner:
         sector = re.sub(r"^\s*\d+\s*", "", owner).strip() or None
+    if not sector:
+        sector = _coarse_sector_from_sic(submission.get("sic"))
     return {"name": name, "sector": sector, "industry": industry}
 
 

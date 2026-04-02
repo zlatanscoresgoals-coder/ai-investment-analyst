@@ -19,6 +19,7 @@ from app.ingestion.sec_filings import (
     fetch_financial_metrics_last_3y,
     get_submission_json_for_ticker,
     merge_sec_company_profile,
+    metadata_from_submission,
     sec_edgar_company_search_url,
 )
 from app.market.quotes import fetch_live_quote, quote_debug_status
@@ -41,7 +42,7 @@ from app.schemas import (
     SecMetricRow,
 )
 from app.tasks.scheduler import execute_full_pipeline, run_periodic_jobs, start_scheduler, stop_scheduler
-from app.universe import MERIDIAN_TICKERS, STARTER_COMPANIES
+from app.universe import MERIDIAN_TICKERS, STARTER_COMPANIES, resolve_sector_for_display
 
 app = FastAPI(title="AI Investment Analyst API", version="0.1.0")
 Base.metadata.create_all(bind=engine)
@@ -526,18 +527,19 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
         .first()
     )
     filing_years = [f.fiscal_year for f in db.query(Filing).filter(Filing.company_id == company.id).all()]
-    if not company.sector and not company.industry:
+    if not company.sector or not company.industry:
         apply_sec_metadata_to_company(db, company)
         db.refresh(company)
     live_q = fetch_live_quote(company.ticker)
     news_rows = fetch_investor_news(company)
 
     sec_v = fetch_latest_valuation_inputs(company.ticker)
+    sector_out = resolve_sector_for_display(company.ticker, company.sector)
 
     v_bundle = build_valuation_bundle(
         ticker=company.ticker,
         company_name=company.name,
-        sector=company.sector,
+        sector=sector_out,
         industry=company.industry,
         sec_inputs=sec_v,
         current_price=live_q["last_price"] if live_q else None,
@@ -547,7 +549,7 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
     return RecommendationDetailOut(
         ticker=company.ticker,
         company_name=company.name,
-        sector=company.sector,
+        sector=sector_out,
         industry=company.industry,
         valuation=v_bundle,
         status=rec.status,
@@ -594,21 +596,26 @@ def api_valuation_standalone(ticker: str, db: Session = Depends(get_db)):
 
     company = db.query(Company).filter(Company.ticker == t).first()
     name = t
-    sector: Optional[str] = None
     industry: Optional[str] = None
+    stored_sector: Optional[str] = None
     if company:
         name = company.name or name
-        if not company.sector and not company.industry:
+        if not company.sector or not company.industry:
             apply_sec_metadata_to_company(db, company)
             db.refresh(company)
-        sector, industry = company.sector, company.industry
+        stored_sector, industry = company.sector, company.industry
     else:
         sub = get_submission_json_for_ticker(t)
         if sub and isinstance(sub.get("name"), str) and sub["name"].strip():
             name = sub["name"].strip()
+        if sub:
+            meta = metadata_from_submission(sub)
+            stored_sector = meta.get("sector")
+            industry = meta.get("industry")
 
     sec_v = fetch_latest_valuation_inputs(t)
     live_q = fetch_live_quote(t)
+    sector = resolve_sector_for_display(t, stored_sector)
 
     v_bundle = build_valuation_bundle(
         ticker=t,

@@ -155,6 +155,7 @@ def ggm_inputs_from_sec(
         debt = float(sec_inputs.get("long_term_debt") or 0) + float(sec_inputs.get("debt_current") or 0)
     cash = float(sec_inputs.get("cash") or 0)
     int_exp = sec_inputs.get("interest_expense")
+    pretax = sec_inputs.get("pretax_income")
 
     int_rate_pct: Optional[float] = None
     if debt > 0 and int_exp is not None and float(int_exp) != 0:
