@@ -121,7 +121,7 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
         return div_a, bb_a, tot
 
     historical_window: list[dict[str, Any]] = []
-    for off in (2, 1, 0):
+    for off in (4, 3, 2, 1, 0):
         hfy = fy - off
         if hfy <= 2000:
             continue

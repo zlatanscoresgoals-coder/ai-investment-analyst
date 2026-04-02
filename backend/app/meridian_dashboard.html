@@ -756,6 +756,109 @@
     .meridian-tab-panel { display: none; }
     .meridian-tab-panel.active { display: block; }
 
+    .valuation-sheet-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 12000;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+      padding: 0;
+    }
+    .valuation-sheet-modal[hidden] { display: none !important; }
+    .valuation-sheet-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      cursor: pointer;
+    }
+    .valuation-sheet-dialog {
+      position: relative;
+      z-index: 1;
+      margin: 24px auto;
+      max-width: min(1200px, calc(100vw - 32px));
+      max-height: calc(100vh - 48px);
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-card, #1a1d24);
+      border: 1px solid var(--border-card, #2c313a);
+      border-radius: 10px;
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+      overflow: hidden;
+    }
+    .valuation-sheet-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-card, #2c313a);
+      flex-shrink: 0;
+    }
+    .valuation-sheet-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--gold, #c9a84c);
+    }
+    .valuation-sheet-body {
+      padding: 16px 18px 20px;
+      overflow: auto;
+      flex: 1;
+      min-height: 0;
+    }
+    .valuation-sheet-body .valuation-sheet-section-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--text-muted);
+      margin: 20px 0 10px;
+    }
+    .valuation-sheet-body .valuation-sheet-section-title:first-child { margin-top: 0; }
+    .valuation-sheet-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      font-family: "Space Mono", ui-monospace, monospace;
+    }
+    .valuation-sheet-table th,
+    .valuation-sheet-table td {
+      border: 1px solid var(--border-card, #2c313a);
+      padding: 6px 8px;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .valuation-sheet-table th:first-child,
+    .valuation-sheet-table td:first-child {
+      text-align: left;
+      min-width: 160px;
+      font-family: "DM Sans", sans-serif;
+      font-size: 11px;
+    }
+    .valuation-sheet-table thead th {
+      background: rgba(201, 168, 76, 0.08);
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
+    .valuation-sheet-table .valuation-sheet-fy-row td {
+      font-size: 10px;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .valuation-sheet-assumptions {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .valuation-sheet-assumptions td {
+      border: 1px solid var(--border-card, #2c313a);
+      padding: 6px 10px;
+    }
+    .valuation-sheet-assumptions td:first-child { color: var(--text-secondary); width: 42%; }
+
     .sec-label {
       font-size: 9px;
       text-transform: uppercase;
@@ -1088,8 +1191,8 @@
       <div class="valuation-search-card">
         <h2>Valuation lab</h2>
         <p class="panel-intro" style="margin-bottom:12px">
-          Search any US ticker — models use the same methodology as recommendation cards: <strong>three years of SEC history</strong> (where available),
-          a <strong>five-year forward projection</strong>, then <strong>terminal value</strong>. All interaction runs in your browser on the payload from this server.
+          Search any US ticker — models use the same methodology as recommendation cards: <strong>five years of SEC history</strong> (where available),
+          a <strong>five-year forward projection</strong> (10-year operating window), then <strong>terminal value</strong>. All interaction runs in your browser on the payload from this server.
         </p>
         <form class="ticker-search" style="max-width:440px" onsubmit="runValuationSearch(event)">
           <input id="valuationTickerInput" type="text" maxlength="12" placeholder="Ticker (e.g. MSFT)" autocomplete="off" />
@@ -1117,6 +1220,17 @@
       </linearGradient>
     </defs>
   </svg>
+
+  <div id="valuationSpreadsheetModal" class="valuation-sheet-modal" hidden aria-hidden="true">
+    <div class="valuation-sheet-backdrop" aria-hidden="true"></div>
+    <div class="valuation-sheet-dialog" role="dialog" aria-modal="true" aria-labelledby="valuationSheetTitle">
+      <div class="valuation-sheet-header">
+        <h3 id="valuationSheetTitle" class="valuation-sheet-title">Valuation spreadsheet</h3>
+        <button type="button" class="btn btn-ghost" id="valuationSheetClose">Close</button>
+      </div>
+      <div class="valuation-sheet-body" id="valuationSheetBody"></div>
+    </div>
+  </div>
 
 <script>
 function formatUsDate(iso) {
@@ -1166,7 +1280,7 @@ function upsidePct(intrinsic, price) {
   return ((i - p) / p) * 100;
 }
 
-function computeMeridianDcf(payload, g1, g2, gTerm, wacc) {
+function computeMeridianDcfDetail(payload, g1, g2, gTerm, wacc) {
   const fcf0 = Number(payload.fcf);
   const shares = Number(payload.shares);
   const nd = Number(payload.net_debt || 0);
@@ -1176,20 +1290,295 @@ function computeMeridianDcf(payload, g1, g2, gTerm, wacc) {
   const g2r = g2 / 100;
   const gt = gTerm / 100;
   if (w <= gt + 0.001) w = gt + 0.005;
+  const histArr = payload.dcf_historical_fcf || [];
+  const histFcf = [0, 1, 2, 3, 4].map((i) => {
+    const row = histArr[i];
+    return row != null && row.fcf != null && Number.isFinite(Number(row.fcf)) ? Number(row.fcf) : null;
+  });
   let fcf = fcf0;
-  let pv = 0;
+  const forecastFcf = [];
+  const pvFlows = [];
+  let pvExplicit = 0;
   for (let t = 1; t <= 5; t++) {
     if (t <= 3) fcf *= 1 + g1r;
     else fcf *= 1 + g2r;
-    pv += fcf / Math.pow(1 + w, t);
+    forecastFcf.push(fcf);
+    const pvt = fcf / Math.pow(1 + w, t);
+    pvFlows.push(pvt);
+    pvExplicit += pvt;
   }
   const fcf6 = fcf * (1 + gt);
   const denom = w - gt;
   if (denom <= 0) return null;
   const tv = fcf6 / denom;
-  pv += tv / Math.pow(1 + w, 5);
-  const equity = Math.max(0, pv - nd);
-  return equity / shares;
+  const pvTv = tv / Math.pow(1 + w, 5);
+  const pvFirm = pvExplicit + pvTv;
+  const equity = Math.max(0, pvFirm - nd);
+  return {
+    histFcf,
+    forecastFcf,
+    pvFlows,
+    fcf6,
+    tv,
+    pvTv,
+    pvExplicit,
+    pvFirm,
+    netDebt: nd,
+    equityValue: equity,
+    perShare: equity / shares,
+    waccEff: w,
+    shares,
+    fcf0,
+  };
+}
+
+function computeMeridianDcf(payload, g1, g2, gTerm, wacc) {
+  const d = computeMeridianDcfDetail(payload, g1, g2, gTerm, wacc);
+  return d ? d.perShare : null;
+}
+
+function sheetRepeatTd(inner, n) {
+  let s = "";
+  for (let i = 0; i < n; i++) s += "<td>" + inner + "</td>";
+  return s;
+}
+
+function closeValuationSpreadsheet() {
+  const m = document.getElementById("valuationSpreadsheetModal");
+  if (m) {
+    m.hidden = true;
+    m.setAttribute("aria-hidden", "true");
+  }
+}
+
+function openValuationSpreadsheet(card) {
+  const m = document.getElementById("valuationSpreadsheetModal");
+  const b = document.getElementById("valuationSheetBody");
+  const title = document.getElementById("valuationSheetTitle");
+  if (!m || !b || !card) return;
+  const tick = card.getAttribute("data-ticker");
+  const V = tick && window.__meridianVal && window.__meridianVal[tick];
+  if (title) title.textContent = (tick || "—") + (V && V.company_name ? " · " + V.company_name : "");
+  b.innerHTML = buildValuationSpreadsheetHtml(card);
+  m.hidden = false;
+  m.setAttribute("aria-hidden", "false");
+}
+
+function buildValuationSpreadsheetHtml(card) {
+  const tick = card.getAttribute("data-ticker");
+  const V = tick && window.__meridianVal && window.__meridianVal[tick];
+  if (!V) return "<p class=\"body-prose\">No valuation payload for this card.</p>";
+
+  const elG1 = card.querySelector('.val-dcf-slider[data-field="g1"]');
+  const g1 = elG1 ? parseFloat(elG1.value) : NaN;
+  const g2 = parseFloat(card.querySelector('.val-dcf-slider[data-field="g2"]')?.value);
+  const gTerm = parseFloat(card.querySelector('.val-dcf-slider[data-field="gTerm"]')?.value);
+  const wacc = parseFloat(card.querySelector('.val-dcf-slider[data-field="wacc"]')?.value);
+  const dcf =
+    Number.isFinite(g1) && Number.isFinite(g2) && Number.isFinite(gTerm) && Number.isFinite(wacc)
+      ? computeMeridianDcfDetail(V, g1, g2, gTerm, wacc)
+      : null;
+
+  const st = computeGgmState(card, V);
+  const gg = V.ggm || {};
+  const dg = ggmSlider(card, "distGr") ?? Number(gg.distribution_growth_pct_default) ?? 5;
+  const tg = ggmSlider(card, "termGr") ?? Number(gg.terminal_growth_pct_default) ?? 3;
+  const dp = ggmSlider(card, "divPct") ?? Number(gg.dividend_payout_pct_default) ?? 25;
+  const bp = ggmSlider(card, "bbPct") ?? Number(gg.buyback_rate_pct_default) ?? 15;
+  const rf = ggmSlider(card, "rf") ?? Number(gg.risk_free_pct_default) ?? 4.5;
+  const beta = ggmSlider(card, "beta") ?? Number(gg.beta_default) ?? 1;
+  const erp = ggmSlider(card, "erp") ?? Number(gg.erp_pct_default) ?? 5.5;
+  const intRate = ggmSlider(card, "intRate") ?? Number(gg.interest_rate_pct_default) ?? 5;
+  const taxRate = ggmSlider(card, "taxRate") ?? Number(gg.tax_rate_pct_default) ?? 21;
+
+  const assumptions = [];
+  assumptions.push(["Current price (quote)", fmtUsdVal(V.current_price)]);
+  assumptions.push(["Latest FY (anchor)", V.fiscal_year != null ? "FY" + String(V.fiscal_year) : "—"]);
+  assumptions.push(["Shares (diluted, model)", compactMoneyVal(V.shares)]);
+  assumptions.push(["Net debt (model)", compactMoneyVal(V.net_debt)]);
+  assumptions.push(["Latest FY FCF (DCF anchor)", compactMoneyVal(V.fcf)]);
+  if (Number.isFinite(g1)) {
+    assumptions.push(["DCF — FCF growth Y1–Y3", g1.toFixed(2) + "%"]);
+    assumptions.push(["DCF — FCF growth Y4–Y5", g2.toFixed(2) + "%"]);
+    assumptions.push(["DCF — Terminal growth", gTerm.toFixed(2) + "%"]);
+    assumptions.push(["DCF — WACC (discount)", wacc.toFixed(2) + "%"]);
+  }
+  assumptions.push(["GGM — Distribution growth (5Y)", dg.toFixed(2) + "%"]);
+  assumptions.push(["GGM — Terminal growth", tg.toFixed(2) + "%"]);
+  assumptions.push(["GGM — Dividend payout (% NI)", dp.toFixed(2) + "%"]);
+  assumptions.push(["GGM — Buybacks (% NI)", bp.toFixed(2) + "%"]);
+  assumptions.push(["GGM — Risk-free", rf.toFixed(2) + "%"]);
+  assumptions.push(["GGM — Beta", Number.isFinite(beta) ? beta.toFixed(2) : "—"]);
+  assumptions.push(["GGM — ERP", erp.toFixed(2) + "%"]);
+  assumptions.push(["GGM — Pre-tax cost of debt", intRate.toFixed(2) + "%"]);
+  assumptions.push(["GGM — Tax rate", taxRate.toFixed(2) + "%"]);
+  if (st.waccPct != null && Number.isFinite(st.waccPct)) {
+    assumptions.push(["GGM — Implied WACC", st.waccPct.toFixed(2) + "%"]);
+  }
+
+  const assumeHtml =
+    '<table class="valuation-sheet-assumptions"><tbody>' +
+    assumptions
+      .map(
+        ([k, v]) =>
+          "<tr><td>" + esc(k) + '</td><td class="font-mono">' + esc(String(v)) + "</td></tr>"
+      )
+      .join("") +
+    "</tbody></table>";
+
+  const colHead =
+    "<thead><tr><th>Line</th><th>FY−4</th><th>FY−3</th><th>FY−2</th><th>FY−1</th><th>FY0</th><th>E+1</th><th>E+2</th><th>E+3</th><th>E+4</th><th>E+5</th><th>Terminal</th></tr></thead>";
+
+  const hist = V.dcf_historical_fcf || [];
+  let fyRowDcf = "<tr class=\"valuation-sheet-fy-row\"><td>SEC fiscal year</td>";
+  for (let i = 0; i < 5; i++) {
+    const y = hist[i] && hist[i].fiscal_year;
+    fyRowDcf += "<td class=\"font-mono\">" + (y != null ? esc(String(y)) : "—") + "</td>";
+  }
+  fyRowDcf += "<td colspan=\"6\"></td></tr>";
+
+  let dcfBody = "";
+  if (dcf) {
+    const hcells = dcf.histFcf
+      .map((x) => "<td>" + (x != null ? esc(compactMoneyVal(x)) : "—") + "</td>")
+      .join("");
+    const fcells = dcf.forecastFcf.map((x) => "<td>" + esc(compactMoneyVal(x)) + "</td>").join("");
+    const pvcells = dcf.pvFlows.map((x) => "<td>" + esc(compactMoneyVal(x)) + "</td>").join("");
+    dcfBody +=
+      "<tr><td>Historical FCFF (SEC)</td>" + hcells + sheetRepeatTd("—", 5) + "<td>—</td></tr>";
+    dcfBody +=
+      "<tr><td>Projected FCFF</td>" + sheetRepeatTd("—", 5) + fcells + "<td>—</td></tr>";
+    dcfBody +=
+      "<tr><td>PV of FCFF @ WACC</td>" +
+      sheetRepeatTd("—", 5) +
+      pvcells +
+      "<td>" +
+      esc(compactMoneyVal(dcf.pvTv)) +
+      "</td></tr>";
+    dcfBody +=
+      "<tr><td>Terminal value (undiscounted)</td>" +
+      sheetRepeatTd("—", 10) +
+      "<td>" +
+      esc(compactMoneyVal(dcf.tv)) +
+      "</td></tr>";
+    dcfBody +=
+      "<tr><td><strong>PV firm (sum)</strong></td>" +
+      sheetRepeatTd("—", 10) +
+      "<td><strong>" +
+      esc(compactMoneyVal(dcf.pvFirm)) +
+      "</strong></td></tr>";
+    dcfBody +=
+      "<tr><td>Less: net debt</td>" +
+      sheetRepeatTd("—", 10) +
+      "<td>" +
+      esc(compactMoneyVal(dcf.netDebt)) +
+      "</td></tr>";
+    dcfBody +=
+      "<tr><td><strong>Equity value</strong></td>" +
+      sheetRepeatTd("—", 10) +
+      "<td><strong>" +
+      esc(compactMoneyVal(dcf.equityValue)) +
+      "</strong></td></tr>";
+    dcfBody +=
+      "<tr><td><strong>Intrinsic value / share</strong></td>" +
+      sheetRepeatTd("—", 10) +
+      "<td><strong>" +
+      fmtUsdVal(dcf.perShare) +
+      "</strong></td></tr>";
+  } else {
+    dcfBody =
+      "<tr><td colspan=\"12\">DCF not computed (need positive FCF and shares; WACC must exceed terminal growth).</td></tr>";
+  }
+
+  const gh = gg.historical_distributions || [];
+  let fyRowGgm = "<tr class=\"valuation-sheet-fy-row\"><td>SEC fiscal year</td>";
+  for (let i = 0; i < 5; i++) {
+    const y = gh[i] && gh[i].fiscal_year;
+    fyRowGgm += "<td class=\"font-mono\">" + (y != null ? esc(String(y)) : "—") + "</td>";
+  }
+  fyRowGgm += "<td colspan=\"6\"></td></tr>";
+
+  let ggmBody = "";
+  if (st.ok) {
+    const distHistCells = [0, 1, 2, 3, 4]
+      .map((i) => {
+        const x = st.histDistVals[i];
+        return "<td>" + (x != null && Number.isFinite(x) ? esc(compactMoneyVal(x)) : "—") + "</td>";
+      })
+      .join("");
+    const distProjCells = st.proj.map((x) => "<td>" + esc(compactMoneyVal(x)) + "</td>").join("");
+    ggmBody +=
+      "<tr><td>Distributions to owners</td>" +
+      distHistCells +
+      distProjCells +
+      "<td>" +
+      (st.tv != null ? esc(compactMoneyVal(st.d6)) + " (D6)" : "—") +
+      "</td></tr>";
+    ggmBody +=
+      "<tr><td>PV of distributions</td>" +
+      sheetRepeatTd("—", 5) +
+      st.pvD.map((x) => "<td>" + esc(compactMoneyVal(x)) + "</td>").join("") +
+      "<td>" +
+      (st.pvTv != null ? esc(compactMoneyVal(st.pvTv)) : "—") +
+      "</td></tr>";
+    ggmBody +=
+      "<tr><td>Terminal value (undiscounted)</td>" +
+      sheetRepeatTd("—", 10) +
+      "<td>" +
+      (st.tv != null ? esc(compactMoneyVal(st.tv)) : "—") +
+      "</td></tr>";
+    ggmBody +=
+      "<tr><td><strong>Equity value (PV sum)</strong></td>" +
+      sheetRepeatTd("—", 10) +
+      "<td><strong>" +
+      esc(compactMoneyVal(st.total)) +
+      "</strong></td></tr>";
+    ggmBody +=
+      "<tr><td><strong>Intrinsic value / share</strong></td>" +
+      sheetRepeatTd("—", 10) +
+      "<td><strong>" +
+      (st.ivPerShare != null ? fmtUsdVal(st.ivPerShare) : "—") +
+      "</strong></td></tr>";
+  } else {
+    ggmBody =
+      "<tr><td colspan=\"12\">GGM not available (net income or other inputs missing).</td></tr>";
+  }
+
+  const dcfIv = dcf ? dcf.perShare : null;
+  const ggmIv = st.ivPerShare;
+  const summ =
+    '<table class="valuation-sheet-assumptions" style="margin-top:8px"><tbody>' +
+    "<tr><td>DCF intrinsic / share (current sliders)</td><td class=\"font-mono\">" +
+    (dcfIv != null ? fmtUsdVal(dcfIv) : "—") +
+    "</td></tr>" +
+    "<tr><td>GGM intrinsic / share (current sliders)</td><td class=\"font-mono\">" +
+    (ggmIv != null && Number.isFinite(ggmIv) ? fmtUsdVal(ggmIv) : "—") +
+    "</td></tr>" +
+    "<tr><td>Quote</td><td class=\"font-mono\">" +
+    fmtUsdVal(V.current_price) +
+    "</td></tr></tbody></table>";
+
+  return (
+    '<p class="body-prose" style="margin:0 0 12px;font-size:13px">Same methodology as the valuation tab: <strong>5 years SEC actuals</strong> + <strong>5-year forecast</strong> + terminal. Numbers reflect <strong>current slider settings</strong> on this card.</p>' +
+    '<div class="valuation-sheet-section-title">Assumptions (live)</div>' +
+    assumeHtml +
+    '<div class="valuation-sheet-section-title">DCF — FCFF to equity</div>' +
+    '<table class="valuation-sheet-table">' +
+    colHead +
+    "<tbody>" +
+    fyRowDcf +
+    dcfBody +
+    "</tbody></table>" +
+    '<div class="valuation-sheet-section-title">GGM — Distributions to owners</div>' +
+    '<table class="valuation-sheet-table">' +
+    colHead +
+    "<tbody>" +
+    fyRowGgm +
+    ggmBody +
+    "</tbody></table>" +
+    '<div class="valuation-sheet-section-title">Summary</div>' +
+    summ
+  );
 }
 
 function compactMoneyVal(v) {
@@ -1358,14 +1747,14 @@ function computeGgmState(card, payload) {
   }
 
   const hist = Array.isArray(g.historical_distributions) ? g.historical_distributions : [];
-  const histDistVals = [0, 1, 2].map((idx) => {
+  const histDistVals = [0, 1, 2, 3, 4].map((idx) => {
     const row = hist[idx];
     if (!row || row.distributions == null) return null;
     const x = Number(row.distributions);
     return Number.isFinite(x) ? x : null;
   });
   let lastHistDist = null;
-  for (let i = 2; i >= 0; i--) {
+  for (let i = 4; i >= 0; i--) {
     if (histDistVals[i] != null && Number.isFinite(histDistVals[i]) && histDistVals[i] > 0) {
       lastHistDist = histDistVals[i];
       break;
@@ -1554,39 +1943,46 @@ function updateGgmCard(card) {
       htd(0) +
       htd(1) +
       htd(2) +
+      htd(3) +
+      htd(4) +
       st.proj.map((x) => "<td>" + fmtBillionsHtml(x) + "</td>").join("") +
       "<td>" +
       (st.tv != null ? fmtBillionsHtml(st.d6) + " <span style=\"font-size:9px;color:var(--text-muted)\">D6</span>" : "—") +
       "</td></tr>";
     const rowTvd =
-      "<tr><td>Time value discount (wait cost)</td><td>—</td><td>—</td><td>—</td><td>" +
+      "<tr><td>Time value discount (wait cost)</td>" +
+      "<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
       st.tvd.map((x) => fmtBillionsHtml(x)).join("</td><td>") +
       "</td><td>" +
       (st.tvDiscountCost != null ? fmtBillionsHtml(st.tvDiscountCost) : "—") +
       "</td></tr>";
     const rowPv =
-      "<tr><td>PV of distributions</td><td>—</td><td>—</td><td>—</td><td>" +
+      "<tr><td>PV of distributions</td>" +
+      "<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
       st.pvD.map((x) => fmtBillionsHtml(x)).join("</td><td>") +
       "</td><td>" +
       (st.pvTv != null ? fmtBillionsHtml(st.pvTv) : "—") +
       "</td></tr>";
     const rowTv =
-      "<tr><td>Terminal value (undiscounted)</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
+      "<tr><td>Terminal value (undiscounted)</td>" +
+      "<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
       (st.tv != null ? fmtBillionsHtml(st.tv) : "—") +
       "</td></tr>";
     const rowCum =
-      "<tr><td>Est. market value (cumulative)</td><td>—</td><td>—</td><td>—</td><td>" +
+      "<tr><td>Est. market value (cumulative)</td>" +
+      "<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
       st.cumRow.map((x) => "<td>" + fmtBillionsHtml(x) + "</td>").join("") +
       "</td><td>" +
       fmtBillionsHtml(st.total) +
       "</td></tr>";
     const rowPx =
-      "<tr><td>Est. price / share</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
+      "<tr><td>Est. price / share</td>" +
+      "<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>" +
       (st.ivPerShare != null ? fmtUsdVal(st.ivPerShare) : "—") +
       "</td></tr>";
     tbody.innerHTML = rowDist + rowTvd + rowPv + rowTv + rowCum + rowPx;
   } else if (tbody) {
-    tbody.innerHTML = "<tr><td colspan=\"10\">Insufficient data for GGM table.</td></tr>";
+    tbody.innerHTML = "<tr><td colspan=\"12\">Insufficient data for GGM table.</td></tr>";
   }
 
   const waccBody = card.querySelector(".ggm-wacc-tbody");
@@ -1739,7 +2135,7 @@ function buildGgmPanelHtml(v, tAttr, fy) {
   return (
     '<div class="val-panel val-panel-ggm">' +
     '<div class="ggm-section-label">Gordon Growth Model — Distributions to Owners Approach</div>' +
-    '<p class="val-meta">Three fiscal years of distributions from SEC (table) + five-year forward path + terminal (sell-side style). Base ' +
+    '<p class="val-meta">Five fiscal years of distributions from SEC (table) + five-year forward path + terminal (sell-side style). Base ' +
     esc(fy) +
     " · NI <span class=\"font-mono\">" +
     esc(compactMoneyVal(gg.net_income)) +
@@ -1817,10 +2213,10 @@ function buildGgmPanelHtml(v, tAttr, fy) {
     '<div class="ggm-summary-line ggm-terminal-split" style="margin-top:8px"></div>' +
     "</div>" +
     '<details class="ggm-details">' +
-    "<summary>3-year history + 5-year projection + terminal</summary>" +
+    "<summary>5-year SEC history + 5-year projection + terminal</summary>" +
     '<div class="ggm-table-wrap">' +
     '<table class="ggm-table">' +
-    "<thead><tr><th>Line</th><th>FY−2</th><th>FY−1</th><th>FY0</th><th>E+1</th><th>E+2</th><th>E+3</th><th>E+4</th><th>E+5</th><th>Terminal</th></tr></thead>" +
+    "<thead><tr><th>Line</th><th>FY−4</th><th>FY−3</th><th>FY−2</th><th>FY−1</th><th>FY0</th><th>E+1</th><th>E+2</th><th>E+3</th><th>E+4</th><th>E+5</th><th>Terminal</th></tr></thead>" +
     '<tbody class="ggm-lecture-tbody"></tbody></table></div></details>' +
     '<details class="ggm-details" style="margin-top:8px">' +
     "<summary>WACC breakdown</summary>" +
@@ -1920,12 +2316,13 @@ function buildValuationPanel(d, item) {
               "</span>"
           )
           .join(" · ") +
-        ". Explicit <strong>discounted</strong> period = 5 forward years + terminal (anchor FY FCF below).</p>"
+        ". <strong>Discounted</strong> period = 5 forward years + terminal; anchor = latest FY FCF below.</p>"
       : "";
 
   return (
     '<div class="meridian-tab-panel" data-tab="valuation" role="tabpanel">' +
-    '<p class="sec-label">3 Yr history · 5 Yr projection · terminal (illustrative)</p>' +
+    '<p class="sec-label">5 Yr SEC history · 5 Yr forecast · terminal (10-year window + TV)</p>' +
+    '<button type="button" class="btn btn-ghost valuation-open-sheet" style="font-size:11px;margin:-4px 0 14px">View full model (spreadsheet)</button>' +
     '<div class="val-dcf-ggm-row">' +
     '<div class="val-panel val-panel-dcf val-dcf-card">' +
     '<div class="val-panel-title">DCF — FCFF to equity</div>' +
@@ -2550,18 +2947,34 @@ function renderCriticalAlerts(alerts) {
 }
 
 document.body.addEventListener("click", (e) => {
+  const openSheet = e.target.closest(".valuation-open-sheet");
+  if (openSheet) {
+    const card = openSheet.closest(".stock-card");
+    if (card) openValuationSpreadsheet(card);
+    return;
+  }
+  if (e.target.closest("#valuationSheetClose") || e.target.classList.contains("valuation-sheet-backdrop")) {
+    closeValuationSpreadsheet();
+    return;
+  }
   const tab = e.target.closest(".meridian-tab");
   if (!tab) return;
-  const card = tab.closest(".stock-card");
-  if (!card) return;
+  const stockCard = tab.closest(".stock-card");
+  if (!stockCard) return;
   const name = tab.dataset.tab;
-  card.querySelectorAll(".meridian-tab").forEach((b) => {
+  stockCard.querySelectorAll(".meridian-tab").forEach((b) => {
     b.classList.toggle("active", b === tab);
     b.setAttribute("aria-selected", b === tab);
   });
-  card.querySelectorAll(".meridian-tab-panel").forEach((p) => {
+  stockCard.querySelectorAll(".meridian-tab-panel").forEach((p) => {
     p.classList.toggle("active", p.dataset.tab === name);
   });
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const m = document.getElementById("valuationSpreadsheetModal");
+  if (m && !m.hidden) closeValuationSpreadsheet();
 });
 
 async function loadRecs() {

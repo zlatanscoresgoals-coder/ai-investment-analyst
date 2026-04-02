@@ -50,10 +50,9 @@ def dcf_equity_value(
     shares: float,
 ) -> tuple[Optional[float], Optional[float]]:
     """
-    FCFF DCF Wall Street-style explicit period: 5 projected years + terminal.
-    FCF0 = latest reported year (anchor); projection starts at year 1.
+    FCFF DCF: five-year forward projection (discounted) + terminal, anchored on latest FY FCF.
+    Five prior fiscal years of actual FCF are supplied separately for the 10-year worksheet view.
     Years 1-3 grow at g1; years 4-5 at g2; terminal Gordon from year-6 FCFF.
-    (Three historical years are for display/parity only, not discounted here.)
     """
     if fcf0 is None or shares is None or float(shares) <= 0:
         return None, None
