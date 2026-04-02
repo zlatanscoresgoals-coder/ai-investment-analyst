@@ -2924,6 +2924,7 @@ async function runFull() {
 
 function renderCriticalAlerts(alerts) {
   const panel = document.getElementById("criticalPanel");
+  if (!panel) return;
   if (!alerts || !alerts.length) {
     panel.classList.remove("visible");
     panel.innerHTML = "";
@@ -2983,18 +2984,49 @@ document.addEventListener("keydown", (e) => {
 });
 
 async function loadRecs() {
-  const [recRes, watchRes, alertsRes] = await Promise.all([
-    fetch("/recommendations?status=recommended&meridian_universe_only=true"),
-    fetch("/recommendations?status=watchlist&meridian_universe_only=true"),
-    fetch("/alerts/critical?limit=15"),
-  ]);
-  const alerts = await alertsRes.json();
-  renderCriticalAlerts(Array.isArray(alerts) ? alerts : []);
+  const target = document.getElementById("recs");
+  if (!target) return;
 
-  const recommended = await recRes.json();
-  const watchlist = await watchRes.json();
+  let recommended = [];
+  let watchlist = [];
+  try {
+    const [recRes, watchRes, alertsRes] = await Promise.all([
+      fetch("/recommendations?status=recommended&meridian_universe_only=true"),
+      fetch("/recommendations?status=watchlist&meridian_universe_only=true"),
+      fetch("/alerts/critical?limit=15"),
+    ]);
+
+    const alertsRaw = await alertsRes.json().catch(() => []);
+    renderCriticalAlerts(Array.isArray(alertsRaw) ? alertsRaw : []);
+
+    if (recRes.ok) {
+      const j = await recRes.json().catch(() => []);
+      if (Array.isArray(j)) recommended = j;
+    }
+    if (watchRes.ok) {
+      const j = await watchRes.json().catch(() => []);
+      if (Array.isArray(j)) watchlist = j;
+    }
+
+    if (!recRes.ok && !watchRes.ok) {
+      const t1 = await recRes.text().catch(() => "");
+      target.innerHTML =
+        '<div class="empty-card">Could not load recommendations (' +
+        recRes.status +
+        "). Check that the API is running and try Refresh.</div>";
+      console.warn("loadRecs list failed", recRes.status, t1.slice(0, 200));
+      return;
+    }
+  } catch (e) {
+    target.innerHTML =
+      '<div class="empty-card">Network error loading recommendations. Check your connection and try Refresh.</div>';
+    console.warn("loadRecs", e);
+    return;
+  }
+
   const byTicker = new Map();
   for (const r of [...recommended, ...watchlist]) {
+    if (!r || !r.ticker) continue;
     const cur = byTicker.get(r.ticker);
     if (!cur) {
       byTicker.set(r.ticker, r);
@@ -3007,7 +3039,6 @@ async function loadRecs() {
     }
   }
   const data = Array.from(byTicker.values()).sort((a, b) => Number(b.final_score) - Number(a.final_score));
-  const target = document.getElementById("recs");
   if (!data.length) {
     target.innerHTML = '<div class="empty-card">No recommendations or watchlist rows yet. Run full analysis.</div>';
     return;
@@ -3015,13 +3046,29 @@ async function loadRecs() {
 
   const detailed = await Promise.all(
     data.map(async (r) => {
-      const dr = await fetch("/recommendations/" + r.ticker);
-      const detail = await dr.json();
-      return { ...r, detail };
+      try {
+        const dr = await fetch("/recommendations/" + encodeURIComponent(r.ticker));
+        const detail = await dr.json().catch(() => ({}));
+        if (!dr.ok) {
+          const msg =
+            typeof detail.detail === "string"
+              ? detail.detail
+              : Array.isArray(detail.detail)
+              ? detail.detail.map((x) => x.msg || x).join(" ")
+              : "HTTP " + dr.status;
+          console.warn("Detail failed", r.ticker, dr.status, detail);
+          return { ...r, detail: {}, _detailError: msg };
+        }
+        return { ...r, detail };
+      } catch (e) {
+        console.warn("Detail fetch error", r.ticker, e);
+        return { ...r, detail: {}, _detailError: String(e && e.message ? e.message : e) };
+      }
     })
   );
 
-  document.getElementById("lastRun").textContent = formatUsDate(data[0].as_of);
+  const lr = document.getElementById("lastRun");
+  if (lr && data[0] && data[0].as_of) lr.textContent = formatUsDate(data[0].as_of);
 
   window.__meridianVal = {};
   detailed.forEach((it) => {
@@ -3029,7 +3076,22 @@ async function loadRecs() {
     if (vb) window.__meridianVal[it.ticker] = vb;
   });
 
-  target.innerHTML = detailed.map((item) => buildCard(item)).join("");
+  target.innerHTML = detailed
+    .map((item) => {
+      try {
+        return buildCard(item);
+      } catch (e) {
+        console.warn("buildCard failed", item.ticker, e);
+        return (
+          '<article class="stock-card" data-ticker="' +
+          esc(item.ticker) +
+          '"><div class="empty-card">Could not render card for ' +
+          esc(item.ticker) +
+          ". Check the console for details.</div></article>"
+        );
+      }
+    })
+    .join("");
 
   target.querySelectorAll(".stock-card").forEach((card) => {
     if (card.querySelector(".val-dcf-slider")) {
@@ -3090,7 +3152,7 @@ function buildCard(item) {
     "This name is " +
     stLabel +
     " with a blended score of " +
-    item.final_score.toFixed(2) +
+    score.toFixed(2) +
     ". Under the Buffett lens, quality and cash generation remain supportive; Ackman-style quality metrics and operating profile are constructive. The Wood lens focuses on growth trajectory and margin structure, while the Burry lens checks balance-sheet resilience and valuation discipline. Institutional suitability is evaluated through liquidity and scale assumptions.";
 
   const fwd = (d.thesis && d.thesis.investment_case_forward) ? d.thesis.investment_case_forward : {};
@@ -3192,7 +3254,7 @@ function buildCard(item) {
       contributions,
       weights,
       reasoningLines,
-      item.final_score,
+      score,
       elaborationByLens
     )
   ).join("");
@@ -3339,10 +3401,17 @@ function buildCard(item) {
 
   const tabValuation = buildValuationPanel(d, item);
 
+  const detailErrBanner = item._detailError
+    ? '<div class="ggm-warn" style="margin:0 0 14px;padding:10px 12px;border-radius:8px">Could not load full recommendation detail for this ticker. ' +
+      esc(String(item._detailError)) +
+      "</div>"
+    : "";
+
   return (
     '<article class="stock-card" data-ticker="' +
     esc(item.ticker) +
     '">' +
+    detailErrBanner +
     '<div class="card-top">' +
     "<div>" +
     '<div class="ticker-lg">' +
@@ -3373,7 +3442,7 @@ function buildCard(item) {
     '" />' +
     "</svg>" +
     '<div class="score-num">' +
-    esc(item.final_score.toFixed(2)) +
+    esc(score.toFixed(2)) +
     "</div></div>" +
     '<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.2em;color:#8E97A8;margin-top:6px">Blended</div>' +
     "</div>" +
