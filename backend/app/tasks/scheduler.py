@@ -9,7 +9,13 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from app.config import settings
 from app.db import SessionLocal
 from app.ingestion.ir_fetcher import fetch_ir_filing_fallback_urls
-from app.ingestion.sec_filings import fallback_financial_metrics_last_3y, fetch_financial_metrics_last_3y, fetch_last_3y_10k_urls
+from app.ingestion.sec_filings import (
+    build_10k_list_from_submission,
+    fallback_financial_metrics_last_3y,
+    fetch_financial_metrics_last_3y,
+    get_submission_json_for_ticker,
+    merge_sec_company_profile,
+)
 from app.models import Company, Filing, FinancialMetric
 from app.recommendations.engine import run_recommendation_for_company
 
@@ -57,7 +63,10 @@ def _sync_universe(db):
 
 
 def _fetch_filings_and_metrics(db, company):
-    filings = fetch_last_3y_10k_urls(company.ticker.upper())
+    sub = get_submission_json_for_ticker(company.ticker.upper())
+    if sub and merge_sec_company_profile(company, sub):
+        db.add(company)
+    filings = build_10k_list_from_submission(sub) if sub else []
     if not filings:
         filings = fetch_ir_filing_fallback_urls(company.ticker.upper())
     for item in filings:

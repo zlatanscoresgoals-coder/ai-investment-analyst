@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+import re
 import secrets
 from typing import Optional
 
@@ -12,9 +13,13 @@ from app.config import settings
 from app.db import Base, SessionLocal, engine, get_db
 from app.ingestion.ir_fetcher import fetch_ir_filing_fallback_urls
 from app.ingestion.sec_filings import (
+    apply_sec_metadata_to_company,
+    build_10k_list_from_submission,
     fallback_financial_metrics_last_3y,
     fetch_financial_metrics_last_3y,
     fetch_last_3y_10k_urls,
+    get_submission_json_for_ticker,
+    merge_sec_company_profile,
 )
 from app.market.quotes import fetch_live_quote, quote_debug_status
 from app.models import Company, ContextSignal, CriticalAlert, Filing, FinancialMetric, PersonaScore, Recommendation
@@ -28,13 +33,153 @@ app = FastAPI(title="AI Investment Analyst API", version="0.1.0")
 Base.metadata.create_all(bind=engine)
 _active_sessions: set[str] = set()
 _dashboard_html_cache: Optional[str] = None
+_dashboard_html_mtime: Optional[float] = None
+
+# Appended to every /dashboard response; script removes this block if the template already has a ticker search.
+_MERIDIAN_TICKER_FALLBACK = """
+<style id="meridianTickerInjectStyle">
+#meridianTickerInjectHost{position:fixed;top:72px;left:0;right:0;z-index:250;background:rgba(7,9,13,0.98);
+border-bottom:1px solid rgba(201,168,76,0.45);padding:12px 28px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;
+font-family:system-ui,-apple-system,sans-serif;box-sizing:border-box;}
+#meridianTickerInjectHost *{box-sizing:border-box;}
+#meridianTickerInjectHost .lab{font-size:10px;font-weight:700;letter-spacing:0.2em;color:#C9A84C;text-transform:uppercase;}
+#meridianTickerInjectHost input{flex:1 1 160px;min-width:140px;max-width:280px;padding:11px 14px;border-radius:8px;border:1px solid #C9A84C;
+background:rgba(201,168,76,0.12);color:#F2EDE4;font-size:13px;text-transform:uppercase;}
+#meridianTickerInjectHost button{padding:11px 18px;border-radius:8px;border:none;background:#C9A84C;color:#07090D;font-weight:700;cursor:pointer;font-size:12px;}
+</style>
+<div id="meridianTickerInjectHost" aria-label="Analyze any ticker">
+  <span class="lab">Look up any ticker</span>
+  <form id="meridianTickerInjectForm" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;flex:1;min-width:200px;margin:0;">
+    <input id="meridianTickerInjectInput" type="text" maxlength="12" placeholder="e.g. NFLX, AMD, BRK-B" autocomplete="off" />
+    <button type="submit">Analyze ticker</button>
+  </form>
+</div>
+<script>
+(function(){
+  if (document.getElementById("tickerSearchInput")) {
+    var h = document.getElementById("meridianTickerInjectHost");
+    var s = document.getElementById("meridianTickerInjectStyle");
+    if (h) h.remove();
+    if (s) s.remove();
+    return;
+  }
+  var b = document.body;
+  var cur = parseInt(window.getComputedStyle(b).paddingTop, 10) || 0;
+  if (cur < 168) { b.style.paddingTop = (cur + 64) + "px"; }
+  function norm(v){ return String(v||"").trim().toUpperCase().replace(/[^A-Z0-9.-]/g,""); }
+  async function go(ev){
+    ev.preventDefault();
+    var input = document.getElementById("meridianTickerInjectInput");
+    var t = norm(input && input.value);
+    if (!t) { window.alert("Enter a ticker symbol."); return; }
+    if (input) input.value = t;
+    var st = document.getElementById("statusText");
+    var tr = document.getElementById("statusTrack");
+    if (tr) tr.classList.add("running");
+    if (st) st.textContent = "Analyzing " + t + "…";
+    try {
+      var res = await fetch("/analysis/run-any/" + encodeURIComponent(t), { method: "POST" });
+      var data = await res.json().catch(function(){ return {}; });
+      if (!res.ok) {
+        var msg = (data && (data.detail || data.message)) || ("Failed: " + res.status);
+        if (st) st.textContent = typeof msg === "string" ? msg : JSON.stringify(msg);
+        return;
+      }
+      if (st) st.textContent = data.message || ("Analyzed " + t);
+      if (typeof window.loadRecs === "function") { await window.loadRecs(); }
+      else { window.location.reload(); }
+    } catch (e) {
+      if (st) st.textContent = "Network error.";
+    } finally {
+      if (tr) tr.classList.remove("running");
+    }
+  }
+  var f = document.getElementById("meridianTickerInjectForm");
+  if (f) f.addEventListener("submit", go);
+})();
+</script>
+"""
+
+
+def _ensure_dashboard_ticker_ui(html: str) -> str:
+    if "meridianTickerInjectStyle" in html:
+        return html
+    idx = html.lower().rfind("</body>")
+    if idx == -1:
+        return html + _MERIDIAN_TICKER_FALLBACK
+    return html[:idx] + _MERIDIAN_TICKER_FALLBACK + html[idx:]
+
+
+def _get_or_create_company(db: Session, ticker: str) -> Company:
+    t = (ticker or "").upper().strip()
+    company = db.query(Company).filter(Company.ticker == t).first()
+    if company:
+        return company
+    company = Company(ticker=t, name=t)
+    db.add(company)
+    db.commit()
+    db.refresh(company)
+    return company
+
+
+def _store_filings_and_metrics(db: Session, company: Company) -> tuple[int, int, bool]:
+    sub = get_submission_json_for_ticker(company.ticker.upper())
+    if sub and merge_sec_company_profile(company, sub):
+        db.add(company)
+    filings = build_10k_list_from_submission(sub) if sub else []
+    if not filings:
+        filings = fetch_ir_filing_fallback_urls(company.ticker.upper())
+    for item in filings:
+        exists = (
+            db.query(Filing)
+            .filter(Filing.company_id == company.id, Filing.fiscal_year == item["fiscal_year"], Filing.filing_type == "10-K")
+            .first()
+        )
+        if exists:
+            continue
+        db.add(
+            Filing(
+                company_id=company.id,
+                filing_type=item["filing_type"],
+                filing_date=item["filing_date"],
+                fiscal_year=item["fiscal_year"],
+                source=item["source"],
+                url=item["url"],
+                raw_text=item.get("raw_text"),
+            )
+        )
+
+    metrics = fetch_financial_metrics_last_3y(company.ticker.upper())
+    used_fallback = False
+    if not metrics:
+        metrics = fallback_financial_metrics_last_3y(company.ticker.upper())
+        used_fallback = bool(metrics)
+    for metric in metrics:
+        exists = (
+            db.query(FinancialMetric)
+            .filter(FinancialMetric.company_id == company.id, FinancialMetric.fiscal_year == metric["fiscal_year"])
+            .first()
+        )
+        if exists:
+            for key, value in metric.items():
+                setattr(exists, key, value)
+        else:
+            db.add(FinancialMetric(company_id=company.id, **metric))
+    db.commit()
+    return len(filings), len(metrics), used_fallback
 
 
 def _load_dashboard_html(last_run_display: str) -> str:
-    global _dashboard_html_cache
-    if _dashboard_html_cache is None:
-        path = Path(__file__).resolve().parent / "meridian_dashboard.html"
+    """Reload dashboard HTML when the file changes (avoids stale UI after edits without restart)."""
+    global _dashboard_html_cache, _dashboard_html_mtime
+    path = Path(__file__).resolve().parent / "meridian_dashboard.html"
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = None
+    if _dashboard_html_cache is None or _dashboard_html_mtime != mtime:
         _dashboard_html_cache = path.read_text(encoding="utf-8")
+        _dashboard_html_mtime = mtime
     return _dashboard_html_cache.replace("__LAST_RUN__", last_run_display)
 
 
@@ -216,59 +361,15 @@ def sync_universe(db: Session = Depends(get_db)) -> GenericMessage:
 
 @app.post("/filings/fetch/{ticker}", response_model=GenericMessage)
 def fetch_filings(ticker: str, db: Session = Depends(get_db)) -> GenericMessage:
-    company = db.query(Company).filter(Company.ticker == ticker.upper()).first()
-    if not company:
-        raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found in universe.")
-
+    company = _get_or_create_company(db, ticker)
     try:
-        filings = fetch_last_3y_10k_urls(ticker.upper())
+        filing_count, metric_count, used_fallback = _store_filings_and_metrics(db, company)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch SEC filings: {exc}") from exc
-    if not filings:
-        filings = fetch_ir_filing_fallback_urls(ticker.upper())
-
-    for item in filings:
-        exists = (
-            db.query(Filing)
-            .filter(Filing.company_id == company.id, Filing.fiscal_year == item["fiscal_year"], Filing.filing_type == "10-K")
-            .first()
-        )
-        if exists:
-            continue
-        db.add(
-            Filing(
-                company_id=company.id,
-                filing_type=item["filing_type"],
-                filing_date=item["filing_date"],
-                fiscal_year=item["fiscal_year"],
-                source=item["source"],
-                url=item["url"],
-                raw_text=item.get("raw_text"),
-            )
-        )
-
-    metrics = fetch_financial_metrics_last_3y(ticker.upper())
-    used_fallback = False
-    if not metrics:
-        metrics = fallback_financial_metrics_last_3y(ticker.upper())
-        used_fallback = bool(metrics)
-    for metric in metrics:
-        exists = (
-            db.query(FinancialMetric)
-            .filter(FinancialMetric.company_id == company.id, FinancialMetric.fiscal_year == metric["fiscal_year"])
-            .first()
-        )
-        if exists:
-            for key, value in metric.items():
-                setattr(exists, key, value)
-        else:
-            db.add(FinancialMetric(company_id=company.id, **metric))
-
-    db.commit()
+        raise HTTPException(status_code=502, detail=f"Failed to fetch filings/metrics: {exc}") from exc
     return GenericMessage(
         message=(
-            f"Fetched filings and metrics for {ticker.upper()} "
-            f"(filings: {len(filings)}, metric years: {len(metrics)}"
+            f"Fetched filings and metrics for {company.ticker} "
+            f"(filings: {filing_count}, metric years: {metric_count}"
             f"{', fallback metrics used' if used_fallback else ''})."
         )
     )
@@ -285,6 +386,28 @@ def run_analysis(ticker: str, db: Session = Depends(get_db)) -> GenericMessage:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return GenericMessage(message=f"Analysis and scoring completed for {ticker.upper()}.")
+
+
+@app.post("/analysis/run-any/{ticker}", response_model=GenericMessage)
+def run_analysis_any_ticker(ticker: str, db: Session = Depends(get_db)) -> GenericMessage:
+    t = (ticker or "").upper().strip()
+    if not re.fullmatch(r"[A-Z0-9.\-]{1,12}", t):
+        raise HTTPException(status_code=400, detail="Ticker format is invalid.")
+    company = _get_or_create_company(db, t)
+    try:
+        filing_count, metric_count, used_fallback = _store_filings_and_metrics(db, company)
+        run_recommendation_for_company(db, company)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to analyze {company.ticker}: {exc}") from exc
+    return GenericMessage(
+        message=(
+            f"Analyzed {company.ticker} with investor lenses "
+            f"(filings: {filing_count}, metric years: {metric_count}"
+            f"{', fallback metrics used' if used_fallback else ''})."
+        )
+    )
 
 
 @app.post("/recommendations/run", response_model=GenericMessage)
@@ -384,6 +507,9 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
         .first()
     )
     filing_years = [f.fiscal_year for f in db.query(Filing).filter(Filing.company_id == company.id).all()]
+    if not company.sector and not company.industry:
+        apply_sec_metadata_to_company(db, company)
+        db.refresh(company)
     live_q = fetch_live_quote(company.ticker)
     news_rows = fetch_investor_news(company)
 
@@ -532,4 +658,12 @@ def dashboard(db: Session = Depends(get_db)):
             last_run_display = str(last_run.as_of)
     else:
         last_run_display = "Never"
-    return HTMLResponse(_load_dashboard_html(last_run_display))
+    raw = _load_dashboard_html(last_run_display)
+    html = _ensure_dashboard_ticker_ui(raw)
+    return HTMLResponse(
+        content=html,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )

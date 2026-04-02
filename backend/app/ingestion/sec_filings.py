@@ -1,8 +1,12 @@
 import os
+import re
 from datetime import datetime
 from typing import Any, Optional
 
 import requests
+from sqlalchemy.orm import Session
+
+from app.models import Company
 
 SEC_TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
@@ -41,15 +45,65 @@ def get_cik_for_ticker(ticker: str) -> Optional[str]:
     return None
 
 
-def fetch_last_3y_10k_urls(ticker: str) -> list[dict]:
+def get_submission_json_for_ticker(ticker: str) -> Optional[dict[str, Any]]:
+    """Single SEC submissions.json fetch for a ticker (used for 10-K list + company profile)."""
     cik = get_cik_for_ticker(ticker)
     if not cik:
+        return None
+    try:
+        return _get_json(SEC_SUBMISSIONS_URL.format(cik=cik))
+    except Exception:
+        return None
+
+
+def metadata_from_submission(submission: dict[str, Any]) -> dict[str, Optional[str]]:
+    """Legal name, broad sector bucket (SEC ownerOrg), and SIC industry line."""
+    name = (submission.get("name") or "").strip() or None
+    industry = (submission.get("sicDescription") or "").strip() or None
+    owner = (submission.get("ownerOrg") or "").strip()
+    sector: Optional[str] = None
+    if owner:
+        sector = re.sub(r"^\s*\d+\s*", "", owner).strip() or None
+    return {"name": name, "sector": sector, "industry": industry}
+
+
+def merge_sec_company_profile(company: Company, submission: dict[str, Any]) -> bool:
+    """Update company row from SEC submission metadata. Returns True if any column changed."""
+    meta = metadata_from_submission(submission)
+    changed = False
+    if meta.get("name") and company.name.strip().upper() == company.ticker.strip().upper():
+        company.name = meta["name"][:255]
+        changed = True
+    if meta.get("sector"):
+        ns = meta["sector"][:128]
+        if company.sector != ns:
+            company.sector = ns
+            changed = True
+    if meta.get("industry"):
+        ni = meta["industry"][:128]
+        if company.industry != ni:
+            company.industry = ni
+            changed = True
+    return changed
+
+
+def apply_sec_metadata_to_company(db: Session, company: Company) -> None:
+    """Refresh sector/industry/name (when placeholder) from SEC; no-op if submissions unavailable."""
+    sub = get_submission_json_for_ticker(company.ticker.upper())
+    if not sub:
+        return
+    if merge_sec_company_profile(company, sub):
+        db.add(company)
+        db.commit()
+
+
+def build_10k_list_from_submission(submission: dict[str, Any]) -> list[dict]:
+    cik = str(submission.get("cik", "0")).zfill(10)
+    try:
+        cik_no_zero = str(int(cik))
+    except ValueError:
         return []
 
-    try:
-        submission = _get_json(SEC_SUBMISSIONS_URL.format(cik=cik))
-    except Exception:
-        return []
     recent = submission.get("filings", {}).get("recent", {})
     forms = recent.get("form", [])
     filing_dates = recent.get("filingDate", [])
@@ -66,7 +120,6 @@ def fetch_last_3y_10k_urls(ticker: str) -> list[dict]:
         fiscal_year = datetime.strptime(report_date, "%Y-%m-%d").year
         accession_raw = accessions[i]
         accession_no_dash = accession_raw.replace("-", "")
-        cik_no_zero = str(int(cik))
         filing_url = f"{SEC_ARCHIVES_BASE}/{cik_no_zero}/{accession_no_dash}/{primary_docs[i]}"
 
         filing_text = ""
@@ -89,6 +142,13 @@ def fetch_last_3y_10k_urls(ticker: str) -> list[dict]:
             break
 
     return output
+
+
+def fetch_last_3y_10k_urls(ticker: str) -> list[dict]:
+    sub = get_submission_json_for_ticker(ticker)
+    if not sub:
+        return []
+    return build_10k_list_from_submission(sub)
 
 
 def _pick_latest_annual_fact(companyfacts: dict[str, Any], tags: list[str]) -> dict[int, float]:
