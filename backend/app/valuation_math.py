@@ -50,9 +50,10 @@ def dcf_equity_value(
     shares: float,
 ) -> tuple[Optional[float], Optional[float]]:
     """
-    Two-stage FCFF discount; firm PV minus net debt -> equity; per share.
-    FCF0 = latest year free cash flow (starting point before year-1 growth).
-    Years 1-5 grow at g1; 6-10 at g2; terminal Gordon on year-11 FCFF.
+    FCFF DCF Wall Street-style explicit period: 5 projected years + terminal.
+    FCF0 = latest reported year (anchor); projection starts at year 1.
+    Years 1-3 grow at g1; years 4-5 at g2; terminal Gordon from year-6 FCFF.
+    (Three historical years are for display/parity only, not discounted here.)
     """
     if fcf0 is None or shares is None or float(shares) <= 0:
         return None, None
@@ -65,14 +66,14 @@ def dcf_equity_value(
     fcf = float(fcf0)
     pv = 0.0
     for t in range(1, 6):
-        fcf *= 1.0 + g1
+        if t <= 3:
+            fcf *= 1.0 + g1
+        else:
+            fcf *= 1.0 + g2
         pv += fcf / (1.0 + w) ** t
-    for t in range(6, 11):
-        fcf *= 1.0 + g2
-        pv += fcf / (1.0 + w) ** t
-    fcf_11 = fcf * (1.0 + gt)
-    tv = fcf_11 / (w - gt)
-    pv += tv / (1.0 + w) ** 10
+    fcf_6 = fcf * (1.0 + gt)
+    tv = fcf_6 / (w - gt)
+    pv += tv / (1.0 + w) ** 5
     equity = max(0.0, pv - float(net_debt or 0))
     return equity, equity / float(shares)
 
@@ -162,6 +163,21 @@ def ggm_inputs_from_sec(
     eq_book = sec_inputs.get("stockholders_equity")
     e_book_f = float(eq_book) if eq_book is not None else None
 
+    hist = sec_inputs.get("historical_window") or []
+    dist_hist: list[dict[str, Any]] = []
+    for row in hist:
+        if not isinstance(row, dict):
+            continue
+        dist_hist.append(
+            {
+                "fiscal_year": row.get("fiscal_year"),
+                "dividends_paid": row.get("dividends_paid"),
+                "buybacks": row.get("buybacks"),
+                "distributions": row.get("distributions"),
+                "net_income": row.get("net_income"),
+            }
+        )
+
     return {
         "net_income": float(ni) if ni is not None else None,
         "dividends_paid": div if div else None,
@@ -183,6 +199,7 @@ def ggm_inputs_from_sec(
         "shares_default": sh,
         "pretax_income": float(pretax) if pretax is not None else None,
         "interest_expense": float(int_exp) if int_exp is not None else None,
+        "historical_distributions": dist_hist,
     }
 
 
@@ -262,10 +279,17 @@ def build_valuation_bundle(
     if not ggm_block.get("shares_default"):
         warnings.append("GGM: share count missing — per-share output unavailable.")
 
+    hist_fcf = []
+    for row in sec_inputs.get("historical_window") or []:
+        if isinstance(row, dict) and row.get("fiscal_year") is not None:
+            hist_fcf.append({"fiscal_year": row["fiscal_year"], "fcf": row.get("fcf")})
+
     return {
         "ticker": ticker,
         "company_name": company_name,
         "fiscal_year": fy,
+        "dcf_historical_fcf": hist_fcf,
+        "projection_years": 5,
         "fcf": fcf,
         "shares": shares,
         "eps": eps,

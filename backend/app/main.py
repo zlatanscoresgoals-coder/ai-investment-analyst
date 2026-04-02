@@ -592,6 +592,64 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
     )
 
 
+@app.get("/api/valuation/{ticker}")
+def api_valuation_standalone(ticker: str, db: Session = Depends(get_db)):
+    """
+    Valuation bundle for any US ticker (SEC Company Facts + quote). No recommendation row required.
+    Used by the dashboard Valuation tab search.
+    """
+    t = (ticker or "").upper().strip()
+    if not re.fullmatch(r"[A-Z0-9.\-]{1,12}", t):
+        raise HTTPException(status_code=400, detail="Ticker format is invalid.")
+
+    company = db.query(Company).filter(Company.ticker == t).first()
+    name = t
+    sector: Optional[str] = None
+    industry: Optional[str] = None
+    if company:
+        name = company.name or name
+        if not company.sector and not company.industry:
+            apply_sec_metadata_to_company(db, company)
+            db.refresh(company)
+        sector, industry = company.sector, company.industry
+    else:
+        sub = get_submission_json_for_ticker(t)
+        if sub and isinstance(sub.get("name"), str) and sub["name"].strip():
+            name = sub["name"].strip()
+
+    sec_v = fetch_latest_valuation_inputs(t)
+    live_q = fetch_live_quote(t)
+    if company:
+        latest_m = (
+            db.query(FinancialMetric)
+            .filter(FinancialMetric.company_id == company.id)
+            .order_by(FinancialMetric.fiscal_year.desc())
+            .first()
+        )
+        if sec_v.get("fcf") is None and latest_m and latest_m.fcf is not None:
+            sec_v["fcf"] = float(latest_m.fcf)
+        if sec_v.get("shares_diluted") is None and latest_m and latest_m.shares_outstanding:
+            sec_v["shares_diluted"] = float(latest_m.shares_outstanding)
+
+    v_bundle = build_valuation_bundle(
+        ticker=t,
+        company_name=name,
+        sector=sector,
+        industry=industry,
+        sec_inputs=sec_v,
+        current_price=live_q["last_price"] if live_q else None,
+    )
+    v_bundle["interpretation"] = build_valuation_interpretation(v_bundle)
+    return {
+        "ticker": t,
+        "company_name": name,
+        "sector": sector,
+        "industry": industry,
+        "valuation": v_bundle,
+        "live_quote": live_q,
+    }
+
+
 @app.get("/health/freshness")
 def health_freshness():
     return {"status": "ok", "schedules": run_periodic_jobs()}
@@ -619,7 +677,7 @@ def health_features():
         "newsapi_configured": bool((settings.newsapi_key or "").strip()),
         "trusted_outlet_filter_strict": settings.critical_news_strict_outlets,
         "verify_detail_news": "GET /recommendations/AAPL → JSON key investor_news",
-        "verify_detail_valuation": "GET /recommendations/AAPL → JSON key valuation (DCF, EV/EBITDA, Graham; interpretation is rule-based, no API)",
+        "verify_detail_valuation": "GET /recommendations/AAPL → JSON key valuation; GET /api/valuation/AAPL works without a recommendation row",
         "verify_dashboard": "/dashboard: SEC | Meridian | Valuation | Portfolio Tracker tabs",
         "meridian_universe_only": "GET /recommendations?meridian_universe_only=true limits list to starter tickers",
         "sec_ingest": "POST /sec/ingest/{ticker} loads filings+metrics without creating recommendation cards",

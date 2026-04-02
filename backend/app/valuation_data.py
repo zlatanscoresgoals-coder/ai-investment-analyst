@@ -54,6 +54,7 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
         "interest_expense": None,
         "income_tax_expense": None,
         "pretax_income": None,
+        "historical_window": [],
         "ok": False,
     }
     cik = get_cik_for_ticker(ticker)
@@ -87,6 +88,55 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
     if not revenue_fy:
         return out
     fy = max(revenue_fy)
+
+    def _fcf_for_fy(fy_i: int) -> Optional[float]:
+        cfo_i = _value_for_fy(companyfacts, ["NetCashProvidedByUsedInOperatingActivities"], fy_i)
+        cap_i = _value_for_fy(companyfacts, ["PaymentsToAcquirePropertyPlantAndEquipment"], fy_i)
+        if cap_i is not None:
+            cap_i = abs(float(cap_i))
+        if cfo_i is not None and cap_i is not None:
+            return float(cfo_i) - cap_i
+        return None
+
+    def _dist_for_fy(fy_i: int) -> tuple[Optional[float], Optional[float], Optional[float]]:
+        dv = _value_for_fy(
+            companyfacts,
+            ["PaymentsOfDividends", "DividendsPaid", "DividendPaid"],
+            fy_i,
+        )
+        bv = _value_for_fy(
+            companyfacts,
+            [
+                "PaymentsForRepurchaseOfCommonStock",
+                "PaymentsForRepurchaseOfEquity",
+                "PaymentsForRepurchaseOfCommonAndPreferredStock",
+            ],
+            fy_i,
+        )
+        div_a = abs(float(dv)) if dv is not None else None
+        bb_a = abs(float(bv)) if bv is not None else None
+        tot = None
+        if div_a is not None or bb_a is not None:
+            tot = (div_a or 0.0) + (bb_a or 0.0)
+        return div_a, bb_a, tot
+
+    historical_window: list[dict[str, Any]] = []
+    for off in (2, 1, 0):
+        hfy = fy - off
+        if hfy <= 2000:
+            continue
+        div_h, bb_h, dist_h = _dist_for_fy(hfy)
+        historical_window.append(
+            {
+                "fiscal_year": hfy,
+                "fcf": _fcf_for_fy(hfy),
+                "net_income": _value_for_fy(companyfacts, ["NetIncomeLoss"], hfy),
+                "dividends_paid": div_h,
+                "buybacks": bb_h,
+                "distributions": dist_h,
+            }
+        )
+    out["historical_window"] = historical_window
 
     out["fiscal_year"] = fy
     out["revenue"] = _value_for_fy(
