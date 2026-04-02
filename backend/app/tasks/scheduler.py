@@ -31,7 +31,7 @@ _state: dict[str, Any] = {
 def _run_full_job():
     db = SessionLocal()
     try:
-        result = execute_full_pipeline(db)
+        result = execute_full_pipeline(db, meridian_only=True)
         _state["last_run_at"] = datetime.utcnow().isoformat()
         _state["last_status"] = "ok"
         _state["last_message"] = result["message"]
@@ -94,9 +94,12 @@ def _fetch_filings_and_metrics(db, company):
     db.commit()
 
 
-def execute_full_pipeline(db) -> dict[str, Any]:
+def execute_full_pipeline(db, *, meridian_only: bool = True) -> dict[str, Any]:
     _sync_universe(db)
-    companies = db.query(Company).filter(Company.ticker.in_(MERIDIAN_TICKERS)).order_by(Company.id).all()
+    q = db.query(Company).order_by(Company.id)
+    if meridian_only:
+        q = q.filter(Company.ticker.in_(MERIDIAN_TICKERS))
+    companies = q.all()
     analyzed = 0
     failures: list[str] = []
     for company in companies:

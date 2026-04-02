@@ -4,7 +4,7 @@ import re
 import secrets
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -347,22 +347,44 @@ def run_analysis_any_ticker(ticker: str, db: Session = Depends(get_db)) -> Gener
 
 
 @app.post("/recommendations/run", response_model=GenericMessage)
-def run_recommendations(db: Session = Depends(get_db)) -> GenericMessage:
-    companies = db.query(Company).filter(Company.ticker.in_(MERIDIAN_TICKERS)).all()
+def run_recommendations(
+    meridian_only: bool = Query(
+        True,
+        description="If true, only starter Meridian tickers; if false, every company row in the database.",
+    ),
+    db: Session = Depends(get_db),
+) -> GenericMessage:
+    q = db.query(Company)
+    if meridian_only:
+        q = q.filter(Company.ticker.in_(MERIDIAN_TICKERS))
+    companies = q.all()
     if not companies:
-        raise HTTPException(status_code=400, detail="Meridian universe empty in DB. Call /universe/sync first.")
+        raise HTTPException(
+            status_code=400,
+            detail="No companies in DB. Call /universe/sync or POST /analysis/run-any/{ticker} first.",
+        )
 
+    ok = 0
     for company in companies:
         try:
             run_recommendation_for_company(db, company)
+            ok += 1
         except ValueError:
             continue
-    return GenericMessage(message=f"Recommendations generated for {len(companies)} companies.")
+    scope = "Meridian starter" if meridian_only else "all DB"
+    return GenericMessage(message=f"Recommendations updated for {ok} of {len(companies)} companies ({scope}).")
 
 
 @app.post("/run/full", response_model=GenericMessage)
-def run_full_pipeline(db: Session = Depends(get_db)) -> GenericMessage:
-    result = execute_full_pipeline(db)
+def run_full_pipeline(
+    scope: str = Query(
+        "meridian",
+        description="meridian: starter universe only. all: every company row in the database (filings + scores).",
+    ),
+    db: Session = Depends(get_db),
+) -> GenericMessage:
+    meridian_only = scope.strip().lower() != "all"
+    result = execute_full_pipeline(db, meridian_only=meridian_only)
     return GenericMessage(
         message=result["message"],
         analyzed=result["analyzed"],
@@ -373,6 +395,7 @@ def run_full_pipeline(db: Session = Depends(get_db)) -> GenericMessage:
 
 @app.get("/recommendations", response_model=list[RecommendationOut])
 def list_recommendations(
+    response: Response,
     status: str = Query(default="recommended"),
     meridian_universe_only: bool = Query(
         default=False,
@@ -500,7 +523,7 @@ def sec_ingest_filings_only(ticker: str, db: Session = Depends(get_db)) -> SecIn
 
 
 @app.get("/recommendations/{ticker}", response_model=RecommendationDetailOut)
-def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
+def get_recommendation_detail(ticker: str, response: Response, db: Session = Depends(get_db)):
     company = db.query(Company).filter(Company.ticker == ticker.upper()).first()
     if not company:
         raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found.")
@@ -546,6 +569,7 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
     )
     v_bundle["interpretation"] = build_valuation_interpretation(v_bundle)
 
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     return RecommendationDetailOut(
         ticker=company.ticker,
         company_name=company.name,
@@ -585,7 +609,7 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/valuation/{ticker}")
-def api_valuation_standalone(ticker: str, db: Session = Depends(get_db)):
+def api_valuation_standalone(ticker: str, response: Response, db: Session = Depends(get_db)):
     """
     Valuation bundle for any US ticker (SEC Company Facts + quote). No recommendation row required.
     Used by the dashboard Valuation tab search.
@@ -626,6 +650,7 @@ def api_valuation_standalone(ticker: str, db: Session = Depends(get_db)):
         current_price=live_q["last_price"] if live_q else None,
     )
     v_bundle["interpretation"] = build_valuation_interpretation(v_bundle)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     return {
         "ticker": t,
         "company_name": name,
@@ -665,7 +690,8 @@ def health_features():
         "verify_detail_news": "GET /recommendations/AAPL → JSON key investor_news",
         "verify_detail_valuation": "GET /recommendations/AAPL → JSON key valuation; GET /api/valuation/AAPL works without a recommendation row",
         "verify_dashboard": "/dashboard: SEC | Meridian | Valuation | Portfolio Tracker tabs",
-        "meridian_universe_only": "GET /recommendations?meridian_universe_only=true limits list to starter tickers",
+        "meridian_universe_only": "false: all companies with a recommendation row (dashboard). true: starter tickers only.",
+        "run_full_scope": "POST /run/full?scope=all — filings + scores for every company in DB; meridian (default) — starter set only.",
         "sec_ingest": "POST /sec/ingest/{ticker} loads filings+metrics without creating recommendation cards",
         "portfolio_tracker": "GET /portfolio — positions in backend/data/portfolio.json; GET/POST/DELETE /api/portfolio",
     }

@@ -14,6 +14,9 @@ class InvestorNewsItem(BaseModel):
 
 class RecommendationOut(BaseModel):
     ticker: str
+    company_name: Optional[str] = None
+    sector: Optional[str] = None
+    industry: Optional[str] = None
     status: str
     final_score: float
     summary: str
