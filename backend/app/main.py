@@ -17,98 +17,38 @@ from app.ingestion.sec_filings import (
     build_10k_list_from_submission,
     fallback_financial_metrics_last_3y,
     fetch_financial_metrics_last_3y,
-    fetch_last_3y_10k_urls,
     get_submission_json_for_ticker,
     merge_sec_company_profile,
+    sec_edgar_company_search_url,
 )
 from app.market.quotes import fetch_live_quote, quote_debug_status
 from app.models import Company, ContextSignal, CriticalAlert, Filing, FinancialMetric, PersonaScore, Recommendation
 from app.news.investor_news import fetch_investor_news
+from app.portfolio_service import add_position, delete_position, get_portfolio_payload
 from app.recommendations.engine import run_recommendation_for_company
+from app.valuation_data import fetch_latest_valuation_inputs
+from app.valuation_interpretation import build_valuation_interpretation
+from app.valuation_math import build_valuation_bundle
 from app.risk.critical_events import is_actionable_critical_alert
-from app.schemas import GenericMessage, InvestorNewsItem, RecommendationDetailOut, RecommendationOut
+from app.schemas import (
+    GenericMessage,
+    InvestorNewsItem,
+    PortfolioAddIn,
+    RecommendationDetailOut,
+    RecommendationOut,
+    SecFilingRow,
+    SecIngestOut,
+    SecMetricRow,
+)
 from app.tasks.scheduler import execute_full_pipeline, run_periodic_jobs, start_scheduler, stop_scheduler
+from app.universe import MERIDIAN_TICKERS, STARTER_COMPANIES
 
 app = FastAPI(title="AI Investment Analyst API", version="0.1.0")
 Base.metadata.create_all(bind=engine)
 _active_sessions: set[str] = set()
 _dashboard_html_cache: Optional[str] = None
 _dashboard_html_mtime: Optional[float] = None
-
-# Appended to every /dashboard response; script removes this block if the template already has a ticker search.
-_MERIDIAN_TICKER_FALLBACK = """
-<style id="meridianTickerInjectStyle">
-#meridianTickerInjectHost{position:fixed;top:72px;left:0;right:0;z-index:250;background:rgba(7,9,13,0.98);
-border-bottom:1px solid rgba(201,168,76,0.45);padding:12px 28px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;
-font-family:system-ui,-apple-system,sans-serif;box-sizing:border-box;}
-#meridianTickerInjectHost *{box-sizing:border-box;}
-#meridianTickerInjectHost .lab{font-size:10px;font-weight:700;letter-spacing:0.2em;color:#C9A84C;text-transform:uppercase;}
-#meridianTickerInjectHost input{flex:1 1 160px;min-width:140px;max-width:280px;padding:11px 14px;border-radius:8px;border:1px solid #C9A84C;
-background:rgba(201,168,76,0.12);color:#F2EDE4;font-size:13px;text-transform:uppercase;}
-#meridianTickerInjectHost button{padding:11px 18px;border-radius:8px;border:none;background:#C9A84C;color:#07090D;font-weight:700;cursor:pointer;font-size:12px;}
-</style>
-<div id="meridianTickerInjectHost" aria-label="Analyze any ticker">
-  <span class="lab">Look up any ticker</span>
-  <form id="meridianTickerInjectForm" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;flex:1;min-width:200px;margin:0;">
-    <input id="meridianTickerInjectInput" type="text" maxlength="12" placeholder="e.g. NFLX, AMD, BRK-B" autocomplete="off" />
-    <button type="submit">Analyze ticker</button>
-  </form>
-</div>
-<script>
-(function(){
-  if (document.getElementById("tickerSearchInput")) {
-    var h = document.getElementById("meridianTickerInjectHost");
-    var s = document.getElementById("meridianTickerInjectStyle");
-    if (h) h.remove();
-    if (s) s.remove();
-    return;
-  }
-  var b = document.body;
-  var cur = parseInt(window.getComputedStyle(b).paddingTop, 10) || 0;
-  if (cur < 168) { b.style.paddingTop = (cur + 64) + "px"; }
-  function norm(v){ return String(v||"").trim().toUpperCase().replace(/[^A-Z0-9.-]/g,""); }
-  async function go(ev){
-    ev.preventDefault();
-    var input = document.getElementById("meridianTickerInjectInput");
-    var t = norm(input && input.value);
-    if (!t) { window.alert("Enter a ticker symbol."); return; }
-    if (input) input.value = t;
-    var st = document.getElementById("statusText");
-    var tr = document.getElementById("statusTrack");
-    if (tr) tr.classList.add("running");
-    if (st) st.textContent = "Analyzing " + t + "…";
-    try {
-      var res = await fetch("/analysis/run-any/" + encodeURIComponent(t), { method: "POST" });
-      var data = await res.json().catch(function(){ return {}; });
-      if (!res.ok) {
-        var msg = (data && (data.detail || data.message)) || ("Failed: " + res.status);
-        if (st) st.textContent = typeof msg === "string" ? msg : JSON.stringify(msg);
-        return;
-      }
-      if (st) st.textContent = data.message || ("Analyzed " + t);
-      if (typeof window.loadRecs === "function") { await window.loadRecs(); }
-      else { window.location.reload(); }
-    } catch (e) {
-      if (st) st.textContent = "Network error.";
-    } finally {
-      if (tr) tr.classList.remove("running");
-    }
-  }
-  var f = document.getElementById("meridianTickerInjectForm");
-  if (f) f.addEventListener("submit", go);
-})();
-</script>
-"""
-
-
-def _ensure_dashboard_ticker_ui(html: str) -> str:
-    if "meridianTickerInjectStyle" in html:
-        return html
-    idx = html.lower().rfind("</body>")
-    if idx == -1:
-        return html + _MERIDIAN_TICKER_FALLBACK
-    return html[:idx] + _MERIDIAN_TICKER_FALLBACK + html[idx:]
-
+_portfolio_html_cache: Optional[str] = None
 
 def _get_or_create_company(db: Session, ticker: str) -> Company:
     t = (ticker or "").upper().strip()
@@ -181,6 +121,13 @@ def _load_dashboard_html(last_run_display: str) -> str:
         _dashboard_html_cache = path.read_text(encoding="utf-8")
         _dashboard_html_mtime = mtime
     return _dashboard_html_cache.replace("__LAST_RUN__", last_run_display)
+
+
+def _load_portfolio_html() -> str:
+    global _portfolio_html_cache
+    if _portfolio_html_cache is None:
+        _portfolio_html_cache = (Path(__file__).resolve().parent / "portfolio_page.html").read_text(encoding="utf-8")
+    return _portfolio_html_cache
 
 
 def _is_auth_path(path: str) -> bool:
@@ -339,19 +286,7 @@ def logout(request: Request):
 
 @app.post("/universe/sync", response_model=GenericMessage)
 def sync_universe(db: Session = Depends(get_db)) -> GenericMessage:
-    starters = [
-        ("AAPL", "Apple Inc."),
-        ("MSFT", "Microsoft Corporation"),
-        ("GOOGL", "Alphabet Inc."),
-        ("AMZN", "Amazon.com, Inc."),
-        ("XOM", "Exxon Mobil Corporation"),
-        ("CVX", "Chevron Corporation"),
-        ("NVDA", "NVIDIA Corporation"),
-        ("TSLA", "Tesla, Inc."),
-        ("JPM", "JPMorgan Chase & Co."),
-        ("BRK-B", "Berkshire Hathaway Inc."),
-    ]
-    for ticker, name in starters:
+    for ticker, name in STARTER_COMPANIES:
         exists = db.query(Company).filter(Company.ticker == ticker).first()
         if not exists:
             db.add(Company(ticker=ticker, name=name))
@@ -412,9 +347,9 @@ def run_analysis_any_ticker(ticker: str, db: Session = Depends(get_db)) -> Gener
 
 @app.post("/recommendations/run", response_model=GenericMessage)
 def run_recommendations(db: Session = Depends(get_db)) -> GenericMessage:
-    companies = db.query(Company).all()
+    companies = db.query(Company).filter(Company.ticker.in_(MERIDIAN_TICKERS)).all()
     if not companies:
-        raise HTTPException(status_code=400, detail="Universe is empty. Call /universe/sync first.")
+        raise HTTPException(status_code=400, detail="Meridian universe empty in DB. Call /universe/sync first.")
 
     for company in companies:
         try:
@@ -436,7 +371,14 @@ def run_full_pipeline(db: Session = Depends(get_db)) -> GenericMessage:
 
 
 @app.get("/recommendations", response_model=list[RecommendationOut])
-def list_recommendations(status: str = Query(default="recommended"), db: Session = Depends(get_db)):
+def list_recommendations(
+    status: str = Query(default="recommended"),
+    meridian_universe_only: bool = Query(
+        default=False,
+        description="If true, only tickers in the Meridian starter universe (excludes ad-hoc SEC lookups).",
+    ),
+    db: Session = Depends(get_db),
+):
     latest_per_company = (
         db.query(
             Recommendation.company_id.label("company_id"),
@@ -446,7 +388,7 @@ def list_recommendations(status: str = Query(default="recommended"), db: Session
         .subquery()
     )
 
-    rows = (
+    q = (
         db.query(Recommendation, Company)
         .join(Company, Company.id == Recommendation.company_id)
         .join(
@@ -455,9 +397,10 @@ def list_recommendations(status: str = Query(default="recommended"), db: Session
             & (latest_per_company.c.latest_as_of == Recommendation.as_of),
         )
         .filter(Recommendation.status == status)
-        .order_by(Recommendation.final_score.desc())
-        .all()
     )
+    if meridian_universe_only:
+        q = q.filter(Company.ticker.in_(MERIDIAN_TICKERS))
+    rows = q.order_by(Recommendation.final_score.desc()).all()
     out: list[RecommendationOut] = []
     for rec, company in rows:
         q = fetch_live_quote(company.ticker)
@@ -477,6 +420,82 @@ def list_recommendations(status: str = Query(default="recommended"), db: Session
             )
         )
     return out
+
+
+@app.post("/sec/ingest/{ticker}", response_model=SecIngestOut)
+def sec_ingest_filings_only(ticker: str, db: Session = Depends(get_db)) -> SecIngestOut:
+    """
+    Pull last 10-K filing links + up to 3 years of annual metrics from SEC into the DB.
+    Does not run investor-lens recommendations (Meridian list stays scoped to the starter universe).
+    """
+    t = (ticker or "").upper().strip()
+    if not re.fullmatch(r"[A-Z0-9.\-]{1,12}", t):
+        raise HTTPException(status_code=400, detail="Ticker format is invalid.")
+    company = _get_or_create_company(db, t)
+    try:
+        _f_ct, _m_ct, used_fallback = _store_filings_and_metrics(db, company)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"SEC ingest failed for {t}: {exc}") from exc
+    db.refresh(company)
+
+    filing_rows = (
+        db.query(Filing)
+        .filter(Filing.company_id == company.id, Filing.filing_type == "10-K")
+        .order_by(Filing.fiscal_year.desc())
+        .limit(5)
+        .all()
+    )
+    metric_rows = (
+        db.query(FinancialMetric)
+        .filter(FinancialMetric.company_id == company.id)
+        .order_by(FinancialMetric.fiscal_year.desc())
+        .limit(5)
+        .all()
+    )
+
+    filings = [
+        SecFilingRow(
+            fiscal_year=f.fiscal_year,
+            filing_type=f.filing_type,
+            filing_date=f.filing_date,
+            url=f.url,
+            source=f.source or "sec",
+        )
+        for f in filing_rows
+    ]
+    metrics = [
+        SecMetricRow(
+            fiscal_year=m.fiscal_year,
+            revenue=m.revenue,
+            gross_margin=m.gross_margin,
+            operating_margin=m.operating_margin,
+            net_margin=m.net_margin,
+            fcf=m.fcf,
+            roe=m.roe,
+            roic=m.roic,
+            current_ratio=m.current_ratio,
+            debt_to_ebitda=m.debt_to_ebitda,
+            interest_coverage=m.interest_coverage,
+            valuation_pe=m.valuation_pe,
+            valuation_ev_ebitda=m.valuation_ev_ebitda,
+        )
+        for m in metric_rows
+    ]
+
+    return SecIngestOut(
+        ticker=company.ticker,
+        company_name=company.name,
+        sector=company.sector,
+        industry=company.industry,
+        filings=filings,
+        metrics=metrics,
+        sec_edgar_search_url=sec_edgar_company_search_url(company.ticker),
+        used_fallback_metrics=used_fallback,
+        message=(
+            f"Loaded {len(filings)} annual 10-K filing row(s) and {len(metrics)} metric year row(s) for {company.ticker} "
+            f"({'demo fallback metrics' if used_fallback else 'from SEC XBRL where available'})."
+        ),
+    )
 
 
 @app.get("/recommendations/{ticker}", response_model=RecommendationDetailOut)
@@ -513,11 +532,34 @@ def get_recommendation_detail(ticker: str, db: Session = Depends(get_db)):
     live_q = fetch_live_quote(company.ticker)
     news_rows = fetch_investor_news(company)
 
+    sec_v = fetch_latest_valuation_inputs(company.ticker)
+    latest_m = (
+        db.query(FinancialMetric)
+        .filter(FinancialMetric.company_id == company.id)
+        .order_by(FinancialMetric.fiscal_year.desc())
+        .first()
+    )
+    if sec_v.get("fcf") is None and latest_m and latest_m.fcf is not None:
+        sec_v["fcf"] = float(latest_m.fcf)
+    if sec_v.get("shares_diluted") is None and latest_m and latest_m.shares_outstanding:
+        sec_v["shares_diluted"] = float(latest_m.shares_outstanding)
+
+    v_bundle = build_valuation_bundle(
+        ticker=company.ticker,
+        company_name=company.name,
+        sector=company.sector,
+        industry=company.industry,
+        sec_inputs=sec_v,
+        current_price=live_q["last_price"] if live_q else None,
+    )
+    v_bundle["interpretation"] = build_valuation_interpretation(v_bundle)
+
     return RecommendationDetailOut(
         ticker=company.ticker,
         company_name=company.name,
         sector=company.sector,
         industry=company.industry,
+        valuation=v_bundle,
         status=rec.status,
         final_score=rec.final_score,
         summary=rec.summary,
@@ -577,7 +619,11 @@ def health_features():
         "newsapi_configured": bool((settings.newsapi_key or "").strip()),
         "trusted_outlet_filter_strict": settings.critical_news_strict_outlets,
         "verify_detail_news": "GET /recommendations/AAPL → JSON key investor_news",
-        "verify_dashboard": "/dashboard merges recommended + watchlist and loads news per card",
+        "verify_detail_valuation": "GET /recommendations/AAPL → JSON key valuation (DCF, EV/EBITDA, Graham; interpretation is rule-based, no API)",
+        "verify_dashboard": "/dashboard: SEC | Meridian | Valuation | Portfolio Tracker tabs",
+        "meridian_universe_only": "GET /recommendations?meridian_universe_only=true limits list to starter tickers",
+        "sec_ingest": "POST /sec/ingest/{ticker} loads filings+metrics without creating recommendation cards",
+        "portfolio_tracker": "GET /portfolio — positions in backend/data/portfolio.json; GET/POST/DELETE /api/portfolio",
     }
 
 
@@ -658,8 +704,7 @@ def dashboard(db: Session = Depends(get_db)):
             last_run_display = str(last_run.as_of)
     else:
         last_run_display = "Never"
-    raw = _load_dashboard_html(last_run_display)
-    html = _ensure_dashboard_ticker_ui(raw)
+    html = _load_dashboard_html(last_run_display)
     return HTMLResponse(
         content=html,
         headers={
@@ -667,3 +712,40 @@ def dashboard(db: Session = Depends(get_db)):
             "Pragma": "no-cache",
         },
     )
+
+
+@app.get("/portfolio", response_class=HTMLResponse)
+def portfolio_tracker_page():
+    html = _load_portfolio_html()
+    return HTMLResponse(
+        content=html,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/api/portfolio")
+def api_portfolio_get(db: Session = Depends(get_db)):
+    return get_portfolio_payload(db)
+
+
+@app.post("/api/portfolio")
+def api_portfolio_add(body: PortfolioAddIn, db: Session = Depends(get_db)):
+    add_position(
+        db=db,
+        ticker=body.ticker.strip(),
+        entry_price=body.entryPrice,
+        shares=body.shares,
+        entry_date=body.entryDate.strip(),
+        notes=body.notes or "",
+    )
+    return get_portfolio_payload(db)
+
+
+@app.delete("/api/portfolio/{position_id}")
+def api_portfolio_delete(position_id: str, db: Session = Depends(get_db)):
+    if not delete_position(position_id):
+        raise HTTPException(status_code=404, detail="Position not found")
+    return get_portfolio_payload(db)

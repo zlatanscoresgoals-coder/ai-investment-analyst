@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Portfolio Tracker | MERIDIAN</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=Playfair+Display:wght@600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-page: #07090D;
+      --bg-card: #0C1118;
+      --border-card: rgba(255, 255, 255, 0.1);
+      --gold: #C9A84C;
+      --green: #2ECC71;
+      --red: #E74C3C;
+      --text: #F2EDE4;
+      --text-secondary: #B4BBC8;
+      --text-muted: #8E97A8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg-page);
+      color: var(--text);
+      font-family: "DM Sans", system-ui, sans-serif;
+      font-size: 15px;
+      padding: 24px 28px 48px;
+    }
+    .site-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 28px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--border-card);
+    }
+    .brand-name {
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 0.25em;
+      color: var(--gold);
+      margin: 0;
+    }
+    .brand-sub { font-size: 9px; text-transform: uppercase; letter-spacing: 0.18em; color: var(--text-muted); margin-top: 4px; }
+    .header-links { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn {
+      font-family: "DM Sans", sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 10px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .btn-gold { background: var(--gold); color: #07090D; border-color: var(--gold); }
+    .btn-ghost { background: transparent; color: var(--text); border-color: var(--border-card); }
+    .btn-ghost:hover { border-color: rgba(255,255,255,0.18); }
+    .btn-danger { background: transparent; color: var(--red); border-color: rgba(231,76,60,0.4); font-size: 11px; padding: 6px 12px; }
+    h1.page-title { font-size: 20px; font-weight: 700; margin: 0 0 8px 0; letter-spacing: 0.06em; }
+    .page-desc { color: var(--text-secondary); font-size: 14px; line-height: 1.6; max-width: 720px; margin-bottom: 24px; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .summary-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .summary-card .lbl {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--text-muted);
+    }
+    .summary-card .val {
+      font-family: "Space Mono", monospace;
+      font-size: 22px;
+      font-weight: 700;
+      margin-top: 10px;
+      color: var(--text);
+    }
+    .summary-card .sub { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+    .pos-gain { color: var(--green) !important; }
+    .pos-loss { color: var(--red) !important; }
+
+    .section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--text-muted);
+      margin: 32px 0 14px 0;
+    }
+
+    .chart-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 10px;
+      padding: 20px 16px 12px;
+      margin-bottom: 28px;
+    }
+    #chart-root { width: 100%; height: 320px; }
+    .chart-empty { color: var(--text-muted); padding: 48px; text-align: center; font-size: 14px; }
+
+    .add-form-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 10px;
+      padding: 22px 24px;
+      margin-bottom: 28px;
+      max-width: 640px;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 14px 18px;
+      align-items: end;
+    }
+    label.fld {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+    }
+    .fld input, .fld textarea {
+      padding: 11px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border-card);
+      background: rgba(0,0,0,0.25);
+      color: var(--text);
+      font-family: "Space Mono", monospace;
+      font-size: 13px;
+    }
+    .fld textarea { min-height: 64px; resize: vertical; font-family: "DM Sans", sans-serif; font-size: 13px; }
+    .form-actions { margin-top: 18px; }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border-card); border-radius: 10px; }
+    table.pos-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .pos-table th, .pos-table td {
+      text-align: left;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-card);
+    }
+    .pos-table th {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      background: rgba(0,0,0,0.2);
+    }
+    .pos-table tr:last-child td { border-bottom: none; }
+    .font-mono { font-family: "Space Mono", monospace; }
+    .status-msg { font-size: 13px; color: var(--text-secondary); margin-top: 12px; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <h1 class="brand-name">MERIDIAN</h1>
+      <div class="brand-sub">Portfolio Tracker</div>
+    </div>
+    <div class="header-links">
+      <a class="btn btn-ghost" href="/dashboard">Dashboard</a>
+      <a class="btn btn-ghost" href="/logout">Logout</a>
+    </div>
+  </header>
+
+  <h1 class="page-title">Your positions</h1>
+  <p class="page-desc">
+    Record tickers you bought from Meridian recommendations (or elsewhere). Live prices use the same providers as the main app (Finnhub, Yahoo, etc.). The chart estimates each day’s value by linearly moving from your entry price to today’s quote.
+  </p>
+
+  <div id="summaryGrid" class="summary-grid"></div>
+
+  <h2 class="section-title">Portfolio value over time</h2>
+  <div class="chart-wrap">
+    <div id="chart-root"></div>
+  </div>
+
+  <h2 class="section-title">Add position</h2>
+  <div class="add-form-card">
+    <form id="addForm">
+      <div class="form-grid">
+        <label class="fld">Ticker
+          <input name="ticker" required maxlength="12" placeholder="AAPL" autocomplete="off" />
+        </label>
+        <label class="fld">Entry price (USD)
+          <input name="entryPrice" type="number" step="0.01" min="0.01" required placeholder="180.00" />
+        </label>
+        <label class="fld">Shares
+          <input name="shares" type="number" step="0.0001" min="0.0001" required placeholder="10" />
+        </label>
+        <label class="fld">Date bought
+          <input name="entryDate" type="date" required />
+        </label>
+        <label class="fld" style="grid-column: 1 / -1;">Notes (optional)
+          <textarea name="notes" placeholder="Thesis, broker, etc."></textarea>
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-gold">Add position</button>
+      </div>
+    </form>
+    <p class="status-msg" id="formStatus"></p>
+  </div>
+
+  <h2 class="section-title">Open positions</h2>
+  <div class="table-wrap">
+    <table class="pos-table" id="posTable">
+      <thead>
+        <tr>
+          <th>Ticker</th>
+          <th>Company</th>
+          <th>Entry</th>
+          <th>Current</th>
+          <th>Shares</th>
+          <th>Cost basis</th>
+          <th>Market value</th>
+          <th>P/L $</th>
+          <th>P/L %</th>
+          <th>Days</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="posBody"></tbody>
+    </table>
+  </div>
+  <p class="status-msg" id="tableStatus"></p>
+
+  <script type="module">
+    import React from "https://esm.sh/react@18.2.0";
+    import { createRoot } from "https://esm.sh/react-dom@18.2.0/client";
+    import {
+      LineChart,
+      Line,
+      XAxis,
+      YAxis,
+      CartesianGrid,
+      Tooltip,
+      ResponsiveContainer,
+    } from "https://esm.sh/recharts@2.12.7?deps=react@18.2.0,react-dom@18.2.0";
+
+    function esc(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function fmtMoney(n) {
+      if (n == null || !Number.isFinite(Number(n))) return "—";
+      const v = Number(n);
+      const abs = Math.abs(v);
+      if (abs >= 1e9) return "$" + (v / 1e9).toFixed(2) + "B";
+      if (abs >= 1e6) return "$" + (v / 1e6).toFixed(2) + "M";
+      if (abs >= 1e3) return "$" + v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return "$" + v.toFixed(2);
+    }
+
+    function plClass(v) {
+      if (v == null || !Number.isFinite(Number(v))) return "";
+      return Number(v) >= 0 ? "pos-gain" : "pos-loss";
+    }
+
+    let chartRoot = null;
+
+    function ChartView({ data }) {
+      return React.createElement(
+        ResponsiveContainer,
+        { width: "100%", height: "100%" },
+        React.createElement(
+          LineChart,
+          { data, margin: { top: 8, right: 16, left: 4, bottom: 8 } },
+          React.createElement(CartesianGrid, {
+            strokeDasharray: "3 3",
+            stroke: "rgba(255,255,255,0.08)",
+          }),
+          React.createElement(XAxis, {
+            dataKey: "date",
+            tick: { fill: "#8E97A8", fontSize: 10 },
+            stroke: "rgba(255,255,255,0.15)",
+            tickMargin: 8,
+          }),
+          React.createElement(YAxis, {
+            tick: { fill: "#8E97A8", fontSize: 10 },
+            stroke: "rgba(255,255,255,0.15)",
+            tickFormatter: (v) =>
+              "$" +
+              (Math.abs(v) >= 1e6
+                ? (v / 1e6).toFixed(1) + "M"
+                : Math.abs(v) >= 1e3
+                  ? (v / 1e3).toFixed(0) + "k"
+                  : v.toFixed(0)),
+          }),
+          React.createElement(Tooltip, {
+            contentStyle: {
+              background: "#0C1118",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: "8px",
+            },
+            labelStyle: { color: "#B4BBC8", fontSize: 12 },
+            formatter: (value) => [fmtMoney(value), "Value"],
+            labelFormatter: (l) => "Date: " + l,
+          }),
+          React.createElement(Line, {
+            type: "monotone",
+            dataKey: "value",
+            stroke: "#C9A84C",
+            strokeWidth: 2,
+            dot: false,
+            activeDot: { r: 4, fill: "#C9A84C" },
+          })
+        )
+      );
+    }
+
+    function mountChart(chartData) {
+      const el = document.getElementById("chart-root");
+      if (!chartRoot) chartRoot = createRoot(el);
+      if (!chartData || !chartData.length) {
+        chartRoot.render(
+          React.createElement(
+            "div",
+            { className: "chart-empty" },
+            "Add positions to see estimated portfolio value over time."
+          )
+        );
+        return;
+      }
+      chartRoot.render(React.createElement(ChartView, { data: chartData }));
+    }
+
+    function renderSummary(s) {
+      const g = document.getElementById("summaryGrid");
+      const inv = fmtMoney(s.totalInvested);
+      const cur = fmtMoney(s.currentValue);
+      const pl = s.totalGainLoss;
+      const plPct = s.totalGainLossPct;
+      const plCls = plClass(pl);
+      const best =
+        s.bestTicker != null && s.bestPct != null
+          ? esc(s.bestTicker) + " (" + (s.bestPct >= 0 ? "+" : "") + Number(s.bestPct).toFixed(2) + "%)"
+          : "—";
+      const worst =
+        s.worstTicker != null && s.worstPct != null
+          ? esc(s.worstTicker) + " (" + (s.worstPct >= 0 ? "+" : "") + Number(s.worstPct).toFixed(2) + "%)"
+          : "—";
+      g.innerHTML =
+        '<div class="summary-card"><div class="lbl">Total invested</div><div class="val">' +
+        inv +
+        '</div></div><div class="summary-card"><div class="lbl">Current value</div><div class="val">' +
+        cur +
+        '</div></div><div class="summary-card"><div class="lbl">Total gain / loss</div><div class="val ' +
+        plCls +
+        '">' +
+        (pl >= 0 ? "+" : "") +
+        fmtMoney(pl) +
+        '</div><div class="sub ' +
+        plCls +
+        '">' +
+        (plPct >= 0 ? "+" : "") +
+        Number(plPct).toFixed(2) +
+        "%</div></div><div class=\"summary-card\"><div class=\"lbl\">Best performer</div><div class=\"val\" style=\"font-size:16px\">" +
+        best +
+        '</div></div><div class="summary-card"><div class="lbl">Worst performer</div><div class="val" style="font-size:16px">' +
+        worst +
+        "</div></div>";
+    }
+
+    function renderTable(positions) {
+      const tb = document.getElementById("posBody");
+      if (!positions.length) {
+        tb.innerHTML =
+          '<tr><td colspan="11" style="color:#8E97A8;padding:24px">No positions yet. Add one above.</td></tr>';
+        return;
+      }
+      tb.innerHTML = positions
+        .map((p) => {
+          const gl = Number(p.gainLoss);
+          const glp = Number(p.gainLossPct);
+          const cls = plClass(gl);
+          return (
+            "<tr>" +
+            '<td class="font-mono"><strong>' +
+            esc(p.ticker) +
+            "</strong></td>" +
+            "<td>" +
+            esc(p.company) +
+            "</td>" +
+            '<td class="font-mono">' +
+            fmtMoney(p.entryPrice) +
+            "</td>" +
+            '<td class="font-mono">' +
+            fmtMoney(p.currentPrice) +
+            "</td>" +
+            '<td class="font-mono">' +
+            esc(String(p.shares)) +
+            "</td>" +
+            '<td class="font-mono">' +
+            fmtMoney(p.costBasis) +
+            "</td>" +
+            '<td class="font-mono">' +
+            fmtMoney(p.marketValue) +
+            "</td>" +
+            '<td class="font-mono ' +
+            cls +
+            '">' +
+            (gl >= 0 ? "+" : "") +
+            fmtMoney(gl) +
+            "</td>" +
+            '<td class="font-mono ' +
+            cls +
+            '">' +
+            (glp >= 0 ? "+" : "") +
+            glp.toFixed(2) +
+            "%</td>" +
+            "<td>" +
+            esc(String(p.daysHeld)) +
+            '</td><td><button type="button" class="btn btn-danger" data-del="' +
+            esc(p.id) +
+            '">Remove</button></td></tr>'
+          );
+        })
+        .join("");
+    }
+
+    async function loadPortfolio() {
+      document.getElementById("tableStatus").textContent = "";
+      try {
+        const res = await fetch("/api/portfolio");
+        if (!res.ok) throw new Error("Failed to load");
+        const data = await res.json();
+        renderSummary(data.summary || {});
+        renderTable(data.positions || []);
+        mountChart(data.chart || []);
+      } catch (e) {
+        document.getElementById("tableStatus").textContent = "Could not load portfolio.";
+      }
+    }
+
+    document.getElementById("addForm").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const st = document.getElementById("formStatus");
+      st.textContent = "";
+      const fd = new FormData(ev.target);
+      const body = {
+        ticker: fd.get("ticker"),
+        entryPrice: Number(fd.get("entryPrice")),
+        shares: Number(fd.get("shares")),
+        entryDate: fd.get("entryDate"),
+        notes: fd.get("notes") || "",
+      };
+      try {
+        const res = await fetch("/api/portfolio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const d = data.detail;
+          st.textContent =
+            typeof d === "string"
+              ? d
+              : d
+                ? JSON.stringify(d)
+                : "Could not add position.";
+          return;
+        }
+        st.textContent = "Position added.";
+        ev.target.reset();
+        renderSummary(data.summary || {});
+        renderTable(data.positions || []);
+        mountChart(data.chart || []);
+      } catch (e) {
+        st.textContent = "Network error.";
+      }
+    });
+
+    document.getElementById("posTable").addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("[data-del]");
+      if (!btn) return;
+      const id = btn.getAttribute("data-del");
+      if (!id || !confirm("Remove this position?")) return;
+      try {
+        const res = await fetch("/api/portfolio/" + encodeURIComponent(id), { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          document.getElementById("tableStatus").textContent = "Remove failed.";
+          return;
+        }
+        renderSummary(data.summary || {});
+        renderTable(data.positions || []);
+        mountChart(data.chart || []);
+      } catch (e) {
+        document.getElementById("tableStatus").textContent = "Network error.";
+      }
+    });
+
+    loadPortfolio();
+  </script>
+</body>
+</html>

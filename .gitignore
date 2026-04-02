@@ -15,6 +15,8 @@ build/
 *.sqlite3
 *.db
 backend/investment_analyst.db
+# Local portfolio positions (optional; remove from gitignore to version in repo)
+backend/data/portfolio.json
 *.egg-info/
 .pytest_cache/
 .mypy_cache/

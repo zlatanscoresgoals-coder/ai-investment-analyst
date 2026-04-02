@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
@@ -30,6 +30,7 @@ class RecommendationDetailOut(RecommendationOut):
     company_name: Optional[str] = None
     sector: Optional[str] = None
     industry: Optional[str] = None
+    valuation: Optional[dict[str, Any]] = None
     persona_scores: dict[str, float] = Field(default_factory=dict)
     thesis: dict[str, Any] = Field(default_factory=dict)
     risks: dict[str, Any] = Field(default_factory=dict)
@@ -44,3 +45,47 @@ class GenericMessage(BaseModel):
     analyzed: Optional[int] = None
     company_count: Optional[int] = None
     failures: Optional[list[str]] = None
+
+
+class SecFilingRow(BaseModel):
+    fiscal_year: int
+    filing_type: str
+    filing_date: Optional[date] = None
+    url: str
+    source: str = "sec"
+
+
+class SecMetricRow(BaseModel):
+    fiscal_year: int
+    revenue: Optional[float] = None
+    gross_margin: Optional[float] = None
+    operating_margin: Optional[float] = None
+    net_margin: Optional[float] = None
+    fcf: Optional[float] = None
+    roe: Optional[float] = None
+    roic: Optional[float] = None
+    current_ratio: Optional[float] = None
+    debt_to_ebitda: Optional[float] = None
+    interest_coverage: Optional[float] = None
+    valuation_pe: Optional[float] = None
+    valuation_ev_ebitda: Optional[float] = None
+
+
+class PortfolioAddIn(BaseModel):
+    ticker: str
+    entryPrice: float = Field(gt=0)
+    shares: float = Field(gt=0)
+    entryDate: str
+    notes: str = ""
+
+
+class SecIngestOut(BaseModel):
+    ticker: str
+    company_name: str
+    sector: Optional[str] = None
+    industry: Optional[str] = None
+    filings: list[SecFilingRow] = Field(default_factory=list)
+    metrics: list[SecMetricRow] = Field(default_factory=list)
+    sec_edgar_search_url: str
+    used_fallback_metrics: bool = False
+    message: str

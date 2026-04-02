@@ -18,6 +18,7 @@ from app.ingestion.sec_filings import (
 )
 from app.models import Company, Filing, FinancialMetric
 from app.recommendations.engine import run_recommendation_for_company
+from app.universe import MERIDIAN_TICKERS, STARTER_COMPANIES
 
 _scheduler: Optional[BackgroundScheduler] = None
 _state: dict[str, Any] = {
@@ -43,19 +44,7 @@ def _run_full_job():
 
 
 def _sync_universe(db):
-    starters = [
-        ("AAPL", "Apple Inc."),
-        ("MSFT", "Microsoft Corporation"),
-        ("GOOGL", "Alphabet Inc."),
-        ("AMZN", "Amazon.com, Inc."),
-        ("XOM", "Exxon Mobil Corporation"),
-        ("CVX", "Chevron Corporation"),
-        ("NVDA", "NVIDIA Corporation"),
-        ("TSLA", "Tesla, Inc."),
-        ("JPM", "JPMorgan Chase & Co."),
-        ("BRK-B", "Berkshire Hathaway Inc."),
-    ]
-    for ticker, name in starters:
+    for ticker, name in STARTER_COMPANIES:
         exists = db.query(Company).filter(Company.ticker == ticker).first()
         if not exists:
             db.add(Company(ticker=ticker, name=name))
@@ -107,7 +96,7 @@ def _fetch_filings_and_metrics(db, company):
 
 def execute_full_pipeline(db) -> dict[str, Any]:
     _sync_universe(db)
-    companies = db.query(Company).order_by(Company.id).all()
+    companies = db.query(Company).filter(Company.ticker.in_(MERIDIAN_TICKERS)).order_by(Company.id).all()
     analyzed = 0
     failures: list[str] = []
     for company in companies:

@@ -2,6 +2,7 @@ import os
 import re
 from datetime import datetime
 from typing import Any, Optional
+from urllib.parse import quote
 
 import requests
 from sqlalchemy.orm import Session
@@ -12,6 +13,12 @@ SEC_TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 SEC_COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 SEC_ARCHIVES_BASE = "https://www.sec.gov/Archives/edgar/data"
+
+
+def sec_edgar_company_search_url(ticker: str) -> str:
+    """Human-readable SEC EDGAR company search (filings, including 10-K)."""
+    t = (ticker or "").strip().upper()
+    return f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&owner=exclude&count=100&ticker={quote(t)}"
 
 
 def _sec_headers() -> dict[str, str]:
