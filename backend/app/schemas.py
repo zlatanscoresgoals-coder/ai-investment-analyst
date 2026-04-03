@@ -42,6 +42,8 @@ class RecommendationDetailOut(RecommendationOut):
     industry: Optional[str] = None
     valuation: Optional[dict[str, Any]] = None
     persona_scores: dict[str, float] = Field(default_factory=dict)
+    # Duplicated from thesis.key_financials for dashboards (always merged from DB + SEC companyfacts).
+    key_financials: dict[str, Any] = Field(default_factory=dict)
     thesis: dict[str, Any] = Field(default_factory=dict)
     risks: dict[str, Any] = Field(default_factory=dict)
     context: dict[str, Any] = Field(default_factory=dict)

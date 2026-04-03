@@ -3098,7 +3098,11 @@ function buildCard(item) {
   const whyNow = (d.thesis && d.thesis.why_now) ? d.thesis.why_now : [];
   const personaReasoning = (d.thesis && d.thesis.persona_reasoning) ? d.thesis.persona_reasoning : [];
   const filingWords = (d.thesis && d.thesis.filing_word_search) ? d.thesis.filing_word_search : {};
-  const keyFinancials = (d.thesis && d.thesis.key_financials) ? d.thesis.key_financials : {};
+  const keyFinancials = Object.assign(
+    {},
+    (d.thesis && d.thesis.key_financials) ? d.thesis.key_financials : {},
+    d.key_financials && typeof d.key_financials === "object" ? d.key_financials : {}
+  );
   const checklist = (d.thesis && d.thesis.persona_checklist) ? d.thesis.persona_checklist : {};
   const contributions = (d.thesis && d.thesis.score_contribution) ? d.thesis.score_contribution : {};
   const weights = (d.thesis && d.thesis.score_weights) ? d.thesis.score_weights : {};

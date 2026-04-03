@@ -137,6 +137,36 @@ def _enrich_thesis_key_financials(db: Session, company_id: int, thesis: dict[str
     return thesis
 
 
+def _merge_sec_companyfacts_into_key_financials(kf: dict[str, Any], sec_v: dict[str, Any]) -> None:
+    """Fill gaps using the same SEC Company Facts payload as the valuation tab (covers empty FinancialMetric rows)."""
+    if not sec_v or not isinstance(sec_v, dict):
+        return
+    try:
+        if kf.get("revenue") is None and sec_v.get("revenue") is not None:
+            kf["revenue"] = float(sec_v["revenue"])
+        if kf.get("fcf") is None and sec_v.get("fcf") is not None:
+            kf["fcf"] = float(sec_v["fcf"])
+        rev = kf.get("revenue")
+        oi = sec_v.get("operating_income")
+        if kf.get("operating_margin") is None and rev is not None and oi is not None and float(rev) != 0:
+            kf["operating_margin"] = float(oi) / float(rev) * 100.0
+        ni = sec_v.get("net_income")
+        if kf.get("net_margin") is None and rev is not None and ni is not None and float(rev) != 0:
+            kf["net_margin"] = float(ni) / float(rev) * 100.0
+        eq = sec_v.get("stockholders_equity")
+        if kf.get("roe") is None and ni is not None and eq is not None and float(eq) != 0:
+            kf["roe"] = float(ni) / float(eq) * 100.0
+        if kf.get("revenue_growth_pct") is None:
+            hw = sec_v.get("historical_window") or []
+            if len(hw) >= 2 and isinstance(hw[-1], dict) and isinstance(hw[-2], dict):
+                n_new = hw[-1].get("net_income")
+                n_old = hw[-2].get("net_income")
+                if n_new is not None and n_old is not None and float(n_old) != 0:
+                    kf["revenue_growth_pct"] = (float(n_new) - float(n_old)) / abs(float(n_old)) * 100.0
+    except (TypeError, ValueError, ZeroDivisionError):
+        pass
+
+
 def _get_or_create_company(db: Session, ticker: str) -> Company:
     t = (ticker or "").upper().strip()
     company = db.query(Company).filter(Company.ticker == t).first()
@@ -746,6 +776,11 @@ def get_recommendation_detail(ticker: str, response: Response, db: Session = Dep
     v_bundle["interpretation"] = build_valuation_interpretation(v_bundle)
 
     thesis_out = _enrich_thesis_key_financials(db, company.id, _normalize_thesis_json(rec.thesis_json))
+    kf = thesis_out.get("key_financials")
+    if not isinstance(kf, dict):
+        kf = {}
+    _merge_sec_companyfacts_into_key_financials(kf, sec_v)
+    thesis_out["key_financials"] = kf
 
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return RecommendationDetailOut(
@@ -772,6 +807,7 @@ def get_recommendation_detail(ticker: str, response: Response, db: Session = Dep
             "pelosi_proxy": persona.pelosi_proxy_score if persona else 0.0,
             "institutional": persona.institutional_score if persona else 0.0,
         },
+        key_financials=dict(kf),
         thesis=thesis_out,
         risks=rec.risk_json or {},
         context={
