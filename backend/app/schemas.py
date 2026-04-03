@@ -29,6 +29,13 @@ class RecommendationOut(BaseModel):
     quote_source: Optional[str] = None
 
 
+class LeaderboardItemOut(RecommendationOut):
+    """Top names in the screening pool ordered by financial score adjusted for headline risk."""
+
+    composite_score: float
+    rank: int
+
+
 class RecommendationDetailOut(RecommendationOut):
     company_name: Optional[str] = None
     sector: Optional[str] = None

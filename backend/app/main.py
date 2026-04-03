@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -27,6 +27,7 @@ from app.models import Company, ContextSignal, CriticalAlert, Filing, FinancialM
 from app.news.investor_news import fetch_investor_news
 from app.portfolio_service import add_position, delete_position, get_portfolio_payload
 from app.recommendations.engine import run_recommendation_for_company
+from app.recommendations.ranking import composite_leaderboard_score
 from app.valuation_data import fetch_latest_valuation_inputs
 from app.valuation_interpretation import build_valuation_interpretation
 from app.valuation_math import build_valuation_bundle
@@ -34,6 +35,7 @@ from app.risk.critical_events import is_actionable_critical_alert
 from app.schemas import (
     GenericMessage,
     InvestorNewsItem,
+    LeaderboardItemOut,
     PortfolioAddIn,
     RecommendationDetailOut,
     RecommendationOut,
@@ -42,7 +44,7 @@ from app.schemas import (
     SecMetricRow,
 )
 from app.tasks.scheduler import execute_full_pipeline, run_periodic_jobs, start_scheduler, stop_scheduler
-from app.universe import MERIDIAN_TICKERS, STARTER_COMPANIES, resolve_sector_for_display
+from app.universe import get_candidate_companies, get_candidate_tickers, resolve_sector_for_display
 
 app = FastAPI(title="AI Investment Analyst API", version="0.1.0")
 Base.metadata.create_all(bind=engine)
@@ -50,6 +52,33 @@ _active_sessions: set[str] = set()
 _dashboard_html_cache: Optional[str] = None
 _dashboard_html_mtime: Optional[float] = None
 _portfolio_html_cache: Optional[str] = None
+
+
+def _latest_context_by_company(db: Session, company_ids: list[int]) -> dict[int, ContextSignal]:
+    if not company_ids:
+        return {}
+    latest_ctx = (
+        db.query(
+            ContextSignal.company_id.label("cid"),
+            func.max(ContextSignal.as_of).label("mx"),
+        )
+        .filter(ContextSignal.company_id.in_(company_ids))
+        .group_by(ContextSignal.company_id)
+        .subquery()
+    )
+    rows = (
+        db.query(ContextSignal)
+        .join(
+            latest_ctx,
+            and_(
+                ContextSignal.company_id == latest_ctx.c.cid,
+                ContextSignal.as_of == latest_ctx.c.mx,
+            ),
+        )
+        .all()
+    )
+    return {r.company_id: r for r in rows}
+
 
 def _get_or_create_company(db: Session, ticker: str) -> Company:
     t = (ticker or "").upper().strip()
@@ -287,12 +316,12 @@ def logout(request: Request):
 
 @app.post("/universe/sync", response_model=GenericMessage)
 def sync_universe(db: Session = Depends(get_db)) -> GenericMessage:
-    for ticker, name in STARTER_COMPANIES:
+    for ticker, name in get_candidate_companies():
         exists = db.query(Company).filter(Company.ticker == ticker).first()
         if not exists:
             db.add(Company(ticker=ticker, name=name))
     db.commit()
-    return GenericMessage(message="Universe synced with starter tickers.")
+    return GenericMessage(message="Universe synced from meridian_candidate_universe.json.")
 
 
 @app.post("/filings/fetch/{ticker}", response_model=GenericMessage)
@@ -350,13 +379,13 @@ def run_analysis_any_ticker(ticker: str, db: Session = Depends(get_db)) -> Gener
 def run_recommendations(
     meridian_only: bool = Query(
         True,
-        description="If true, only starter Meridian tickers; if false, every company row in the database.",
+        description="If true, only tickers in meridian_candidate_universe.json; if false, every company row.",
     ),
     db: Session = Depends(get_db),
 ) -> GenericMessage:
     q = db.query(Company)
     if meridian_only:
-        q = q.filter(Company.ticker.in_(MERIDIAN_TICKERS))
+        q = q.filter(Company.ticker.in_(get_candidate_tickers()))
     companies = q.all()
     if not companies:
         raise HTTPException(
@@ -371,20 +400,22 @@ def run_recommendations(
             ok += 1
         except ValueError:
             continue
-    scope = "Meridian starter" if meridian_only else "all DB"
+    scope = "candidate pool (meridian_candidate_universe.json)" if meridian_only else "all DB"
     return GenericMessage(message=f"Recommendations updated for {ok} of {len(companies)} companies ({scope}).")
 
 
 @app.post("/run/full", response_model=GenericMessage)
 def run_full_pipeline(
     scope: str = Query(
-        "meridian",
-        description="meridian: starter universe only. all: every company row in the database (filings + scores).",
+        "candidates",
+        description="candidates: companies in meridian_candidate_universe.json. all: every company row. "
+        "Legacy meridian is treated as candidates.",
     ),
     db: Session = Depends(get_db),
 ) -> GenericMessage:
-    meridian_only = scope.strip().lower() != "all"
-    result = execute_full_pipeline(db, meridian_only=meridian_only)
+    raw = (scope or "candidates").strip().lower()
+    pool = "all" if raw == "all" else "candidates"
+    result = execute_full_pipeline(db, pool=pool)
     return GenericMessage(
         message=result["message"],
         analyzed=result["analyzed"],
@@ -393,13 +424,91 @@ def run_full_pipeline(
     )
 
 
+@app.get("/recommendations/leaderboard", response_model=list[LeaderboardItemOut])
+def recommendations_leaderboard(
+    response: Response,
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    """
+    Top `limit` names in the screening JSON pool, ordered by filing-based score adjusted for
+    headline risk captured at the last analysis run (not live NLP on every request).
+    """
+    latest_per_company = (
+        db.query(
+            Recommendation.company_id.label("company_id"),
+            func.max(Recommendation.as_of).label("latest_as_of"),
+        )
+        .group_by(Recommendation.company_id)
+        .subquery()
+    )
+
+    q = (
+        db.query(Recommendation, Company)
+        .join(Company, Company.id == Recommendation.company_id)
+        .join(
+            latest_per_company,
+            (latest_per_company.c.company_id == Recommendation.company_id)
+            & (latest_per_company.c.latest_as_of == Recommendation.as_of),
+        )
+        .filter(Company.ticker.in_(get_candidate_tickers()))
+    )
+    rows = q.all()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    if not rows:
+        return []
+
+    cids = [c.id for _, c in rows]
+    ctx_map = _latest_context_by_company(db, cids)
+
+    enriched: list[tuple[float, Recommendation, Company]] = []
+    for rec, company in rows:
+        ctx = ctx_map.get(company.id)
+        nr = ctx.news_risk_score if ctx else None
+        comp = composite_leaderboard_score(rec.final_score, nr)
+        enriched.append((comp, rec, company))
+
+    enriched.sort(key=lambda x: -x[0])
+    rec_rows = [t for t in enriched if t[1].status == "recommended"]
+    wl_rows = [t for t in enriched if t[1].status != "recommended"]
+    merged = rec_rows[:limit]
+    if len(merged) < limit:
+        merged.extend(wl_rows[: max(0, limit - len(merged))])
+
+    out: list[LeaderboardItemOut] = []
+    for rank, (comp_score, rec, company) in enumerate(merged[:limit], start=1):
+        live = fetch_live_quote(company.ticker)
+        sector_disp = resolve_sector_for_display(company.ticker, company.sector)
+        out.append(
+            LeaderboardItemOut(
+                ticker=company.ticker,
+                company_name=company.name,
+                sector=sector_disp,
+                industry=company.industry,
+                status=rec.status,
+                final_score=rec.final_score,
+                summary=rec.summary,
+                horizon=rec.horizon,
+                as_of=rec.as_of,
+                last_price=live["last_price"] if live else None,
+                price_currency=live.get("currency") if live else None,
+                price_change_pct_day=live.get("change_pct_day") if live else None,
+                quote_as_of=live.get("as_of") if live else None,
+                quote_source=live.get("source") if live else None,
+                composite_score=round(comp_score, 3),
+                rank=rank,
+            )
+        )
+    return out
+
+
 @app.get("/recommendations", response_model=list[RecommendationOut])
 def list_recommendations(
     response: Response,
     status: str = Query(default="recommended"),
     meridian_universe_only: bool = Query(
         default=False,
-        description="If true, only tickers in the Meridian starter universe (excludes ad-hoc SEC lookups).",
+        description="If true, only tickers listed in meridian_candidate_universe.json.",
     ),
     db: Session = Depends(get_db),
 ):
@@ -423,26 +532,31 @@ def list_recommendations(
         .filter(Recommendation.status == status)
     )
     if meridian_universe_only:
-        q = q.filter(Company.ticker.in_(MERIDIAN_TICKERS))
+        q = q.filter(Company.ticker.in_(get_candidate_tickers()))
     rows = q.order_by(Recommendation.final_score.desc()).all()
     out: list[RecommendationOut] = []
     for rec, company in rows:
-        q = fetch_live_quote(company.ticker)
+        live = fetch_live_quote(company.ticker)
+        sector_disp = resolve_sector_for_display(company.ticker, company.sector)
         out.append(
             RecommendationOut(
                 ticker=company.ticker,
+                company_name=company.name,
+                sector=sector_disp,
+                industry=company.industry,
                 status=rec.status,
                 final_score=rec.final_score,
                 summary=rec.summary,
                 horizon=rec.horizon,
                 as_of=rec.as_of,
-                last_price=q["last_price"] if q else None,
-                price_currency=q.get("currency") if q else None,
-                price_change_pct_day=q.get("change_pct_day") if q else None,
-                quote_as_of=q.get("as_of") if q else None,
-                quote_source=q.get("source") if q else None,
+                last_price=live["last_price"] if live else None,
+                price_currency=live.get("currency") if live else None,
+                price_change_pct_day=live.get("change_pct_day") if live else None,
+                quote_as_of=live.get("as_of") if live else None,
+                quote_source=live.get("source") if live else None,
             )
         )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     return out
 
 
@@ -450,7 +564,7 @@ def list_recommendations(
 def sec_ingest_filings_only(ticker: str, db: Session = Depends(get_db)) -> SecIngestOut:
     """
     Pull last 10-K filing links + up to 3 years of annual metrics from SEC into the DB.
-    Does not run investor-lens recommendations (Meridian list stays scoped to the starter universe).
+    Does not run investor-lens scoring (use analysis/run-any or full pipeline for that).
     """
     t = (ticker or "").upper().strip()
     if not re.fullmatch(r"[A-Z0-9.\-]{1,12}", t):
@@ -690,8 +804,9 @@ def health_features():
         "verify_detail_news": "GET /recommendations/AAPL → JSON key investor_news",
         "verify_detail_valuation": "GET /recommendations/AAPL → JSON key valuation; GET /api/valuation/AAPL works without a recommendation row",
         "verify_dashboard": "/dashboard: SEC | Meridian | Valuation | Portfolio Tracker tabs",
-        "meridian_universe_only": "false: all companies with a recommendation row (dashboard). true: starter tickers only.",
-        "run_full_scope": "POST /run/full?scope=all — filings + scores for every company in DB; meridian (default) — starter set only.",
+        "meridian_universe_only": "true: only tickers in backend/data/meridian_candidate_universe.json.",
+        "run_full_scope": "POST /run/full?scope=candidates (default) — JSON pool; scope=all — entire DB.",
+        "leaderboard": "GET /recommendations/leaderboard?limit=10 — top names by composite (score − headline risk penalty).",
         "sec_ingest": "POST /sec/ingest/{ticker} loads filings+metrics without creating recommendation cards",
         "portfolio_tracker": "GET /portfolio — positions in backend/data/portfolio.json; GET/POST/DELETE /api/portfolio",
     }

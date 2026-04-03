@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     recommendation_hysteresis_minutes: int = 1440
     auto_refresh_enabled: bool = True
     auto_refresh_interval_minutes: int = 15
+    # Leaderboard: penalize final_score when headline news_risk is above neutral (see news_risk.py).
+    news_ranking_weight: float = 5.0
+    news_risk_neutral: float = 32.0
     risk_block_min_confidence: str = "medium"
     alert_webhook_url: str = ""
     # Set AUTH_ENABLED=true (env) to require login again.

@@ -18,7 +18,7 @@ from app.ingestion.sec_filings import (
 )
 from app.models import Company, Filing, FinancialMetric
 from app.recommendations.engine import run_recommendation_for_company
-from app.universe import MERIDIAN_TICKERS, STARTER_COMPANIES
+from app.universe import get_candidate_companies, get_candidate_tickers
 
 _scheduler: Optional[BackgroundScheduler] = None
 _state: dict[str, Any] = {
@@ -31,7 +31,7 @@ _state: dict[str, Any] = {
 def _run_full_job():
     db = SessionLocal()
     try:
-        result = execute_full_pipeline(db, meridian_only=True)
+        result = execute_full_pipeline(db, pool="candidates")
         _state["last_run_at"] = datetime.utcnow().isoformat()
         _state["last_status"] = "ok"
         _state["last_message"] = result["message"]
@@ -44,7 +44,7 @@ def _run_full_job():
 
 
 def _sync_universe(db):
-    for ticker, name in STARTER_COMPANIES:
+    for ticker, name in get_candidate_companies():
         exists = db.query(Company).filter(Company.ticker == ticker).first()
         if not exists:
             db.add(Company(ticker=ticker, name=name))
@@ -94,11 +94,12 @@ def _fetch_filings_and_metrics(db, company):
     db.commit()
 
 
-def execute_full_pipeline(db, *, meridian_only: bool = True) -> dict[str, Any]:
+def execute_full_pipeline(db, *, pool: str = "candidates") -> dict[str, Any]:
     _sync_universe(db)
     q = db.query(Company).order_by(Company.id)
-    if meridian_only:
-        q = q.filter(Company.ticker.in_(MERIDIAN_TICKERS))
+    p = (pool or "candidates").strip().lower()
+    if p != "all":
+        q = q.filter(Company.ticker.in_(get_candidate_tickers()))
     companies = q.all()
     analyzed = 0
     failures: list[str] = []
@@ -116,16 +117,18 @@ def execute_full_pipeline(db, *, meridian_only: bool = True) -> dict[str, Any]:
                 pass
             continue
     n = len(companies)
+    pool_note = " (JSON screening pool)" if p != "all" else " (all DB companies)"
     if n == 0:
         msg = (
-            "Full pipeline: universe is empty after sync (0 companies). "
-            "Check DATABASE_URL and that the app can write to the database."
+            "Full pipeline: no companies to analyze after sync (0 rows in scope"
+            + pool_note
+            + "). Check DATABASE_URL and meridian_candidate_universe.json."
         )
     else:
         failure_note = f" Failed: {len(failures)}." if failures else ""
         failure_preview = f" First errors -> {' | '.join(failures[:5])}" if failures else ""
         msg = (
-            f"Full pipeline run finished. Successfully analyzed {analyzed} of {n} companies."
+            f"Full pipeline run finished{pool_note}. Successfully analyzed {analyzed} of {n} companies."
             f"{failure_note}{failure_preview}"
         )
     return {"message": msg, "analyzed": analyzed, "company_count": n, "failures": failures}

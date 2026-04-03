@@ -7,6 +7,8 @@ from app.config import settings
 from app.models import Company, ContextSignal, Filing, FinancialMetric, PersonaScore, Recommendation
 from app.recommendations.forward_case import build_forward_investment_case
 from app.recommendations.persona_elaboration import build_persona_lens_elaboration
+from app.news.investor_news import fetch_investor_news
+from app.news.news_risk import headline_news_risk_score
 from app.scoring.blender import WEIGHTS, score_all
 
 
@@ -263,12 +265,21 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
     persona_row = PersonaScore(company_id=company.id, confidence=0.65, **score_card)
     db.add(persona_row)
 
+    news_rows = fetch_investor_news(company, days=14, limit=15)
+    news_risk = headline_news_risk_score(
+        news_rows,
+        neutral=settings.news_risk_neutral,
+    )
     context_row = ContextSignal(
         company_id=company.id,
-        analyst_consensus_score=60.0,
-        news_risk_score=35.0,
+        analyst_consensus_score=55.0,
+        news_risk_score=news_risk,
         search_interest_score=55.0,
-        notes_json={"note": "Context signals are capped and secondary to core framework."},
+        notes_json={
+            "headline_count": len(news_rows),
+            "source": "analysis_run_headlines",
+            "note": "News risk informs ranking; filing-first scores are primary.",
+        },
     )
     db.add(context_row)
 

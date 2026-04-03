@@ -1180,15 +1180,15 @@
 
     <section id="panel-meridian" class="app-panel" aria-labelledby="tabBtnMeridian">
       <p class="panel-intro" style="margin-bottom:14px">
-        <strong>Live quotes</strong> refresh on each load. <strong>Scores and lens output</strong> come from the latest
-        SEC annual metrics in the database and are updated when you run analysis (new 10-K years change the picture over time).
-        The starter list is a curated default—add any US ticker with <span class="font-mono">POST /analysis/run-any/{ticker}</span>,
-        then <strong>Run full analysis</strong> rescans <em>every</em> company in the database so names can drop to watchlist or rise
-        to recommended as fundamentals and the blended framework evolve.
+        The <strong>top ten cards</strong> are the highest-ranked names in the <strong>screening pool</strong>
+        (<span class="font-mono">backend/data/meridian_candidate_universe.json</span> — edit that file to change the pool; the API reloads it on each request and on sync).
+        Rank uses <strong>filing-based lens scores</strong> plus <strong>headline risk</strong> captured when analysis last ran.
+        <strong>Live quotes</strong> refresh on each page load. Use <strong>Run Full Analysis</strong> to refetch SEC metrics and re-score the whole pool
+        (<span class="font-mono">POST /run/full?scope=all</span> rescans every company in the database, not only the JSON list).
       </p>
       <div class="meridian-toolbar">
         <div class="header-meta">Last run <span id="lastRun">__LAST_RUN__</span></div>
-        <button type="button" class="btn btn-gold" onclick="runFull()" title="Refetch filings and rescored recommendations for all companies in the DB (not only the starter ten)">Run Full Analysis</button>
+        <button type="button" class="btn btn-gold" onclick="runFull()" title="Refetch filings and rescore all tickers in meridian_candidate_universe.json">Run Full Analysis</button>
         <button type="button" class="btn btn-ghost" onclick="loadRecs()">Refresh</button>
       </div>
       <div id="criticalPanel" class="critical-panel"></div>
@@ -2919,7 +2919,7 @@ async function runSecIngest(evt) {
 async function runFull() {
   setStatusRunning(true);
   setStatusMsg("Running full pipeline");
-  const res = await fetch("/run/full?scope=all", { method: "POST", cache: "no-store" });
+  const res = await fetch("/run/full?scope=candidates", { method: "POST", cache: "no-store" });
   const data = await res.json();
   let line = data.message || "Done";
   if (data.failures && data.failures.length) {
@@ -2995,60 +2995,38 @@ async function loadRecs() {
   const target = document.getElementById("recs");
   if (!target) return;
 
-  let recommended = [];
-  let watchlist = [];
+  let data = [];
   try {
-    const [recRes, watchRes, alertsRes] = await Promise.all([
-      fetch("/recommendations?status=recommended&meridian_universe_only=false", { cache: "no-store" }),
-      fetch("/recommendations?status=watchlist&meridian_universe_only=false", { cache: "no-store" }),
+    const [lbRes, alertsRes] = await Promise.all([
+      fetch("/recommendations/leaderboard?limit=10", { cache: "no-store" }),
       fetch("/alerts/critical?limit=15", { cache: "no-store" }),
     ]);
 
     const alertsRaw = await alertsRes.json().catch(() => []);
     renderCriticalAlerts(Array.isArray(alertsRaw) ? alertsRaw : []);
 
-    if (recRes.ok) {
-      const j = await recRes.json().catch(() => []);
-      if (Array.isArray(j)) recommended = j;
-    }
-    if (watchRes.ok) {
-      const j = await watchRes.json().catch(() => []);
-      if (Array.isArray(j)) watchlist = j;
-    }
-
-    if (!recRes.ok && !watchRes.ok) {
-      const t1 = await recRes.text().catch(() => "");
+    if (!lbRes.ok) {
+      const t1 = await lbRes.text().catch(() => "");
       target.innerHTML =
-        '<div class="empty-card">Could not load recommendations (' +
-        recRes.status +
+        '<div class="empty-card">Could not load leaderboard (' +
+        lbRes.status +
         "). Check that the API is running and try Refresh.</div>";
-      console.warn("loadRecs list failed", recRes.status, t1.slice(0, 200));
+      console.warn("loadRecs leaderboard failed", lbRes.status, t1.slice(0, 200));
       return;
     }
+
+    const j = await lbRes.json().catch(() => []);
+    if (Array.isArray(j)) data = j;
   } catch (e) {
     target.innerHTML =
-      '<div class="empty-card">Network error loading recommendations. Check your connection and try Refresh.</div>';
+      '<div class="empty-card">Network error loading leaderboard. Check your connection and try Refresh.</div>';
     console.warn("loadRecs", e);
     return;
   }
 
-  const byTicker = new Map();
-  for (const r of [...recommended, ...watchlist]) {
-    if (!r || !r.ticker) continue;
-    const cur = byTicker.get(r.ticker);
-    if (!cur) {
-      byTicker.set(r.ticker, r);
-      continue;
-    }
-    if (cur.status !== "recommended" && r.status === "recommended") {
-      byTicker.set(r.ticker, r);
-    } else if (Number(r.final_score) > Number(cur.final_score)) {
-      byTicker.set(r.ticker, r);
-    }
-  }
-  const data = Array.from(byTicker.values()).sort((a, b) => Number(b.final_score) - Number(a.final_score));
   if (!data.length) {
-    target.innerHTML = '<div class="empty-card">No recommendations or watchlist rows yet. Run full analysis.</div>';
+    target.innerHTML =
+      '<div class="empty-card">No leaderboard yet. Call <span class="font-mono">POST /universe/sync</span> if the DB is new, then <strong>Run Full Analysis</strong>.</div>';
     return;
   }
 
@@ -3181,6 +3159,15 @@ function buildCard(item) {
 
   const sectorPill = item.sector || item.industry || d.sector || d.industry || "Sector N/A";
   const horizonPill = item.horizon || "—";
+
+  const leaderboardMeta =
+    item.rank != null && item.composite_score != null
+      ? '<div style="font-size:11px;color:#8E97A8;margin-top:8px;line-height:1.35">Leaderboard #' +
+        esc(String(item.rank)) +
+        " · composite " +
+        esc(Number(item.composite_score).toFixed(2)) +
+        ' <span style="opacity:0.85">(filing score adjusted by headline risk at last run)</span></div>'
+      : "";
 
   const checklistHtml = Object.entries(checklist)
     .map(
@@ -3438,7 +3425,9 @@ function buildCard(item) {
     '<span class="pill">' +
     esc(item.status) +
     "</span>" +
-    "</div></div>" +
+    "</div>" +
+    leaderboardMeta +
+    "</div>" +
     '<div class="score-center">' +
     '<div class="score-ring-wrap">' +
     "<svg width=\"112\" height=\"112\" viewBox=\"0 0 112 112\">" +
