@@ -275,8 +275,31 @@ def on_startup():
         db.commit()
     except Exception:
         db.rollback()
+
+    # Purge synthetic fallback rows written by old code.
+    # Real SEC data has varied margins; the fake fallback always wrote exactly
+    # 25.0 / 24.2 / 23.4 for operating_margin across all companies and years.
+    try:
+        deleted = (
+            db.query(FinancialMetric)
+            .filter(FinancialMetric.operating_margin.in_([25.0, 24.2, 23.4]))
+            .delete(synchronize_session=False)
+        )
+        if deleted:
+            db.commit()
+            import logging
+            logging.getLogger(__name__).warning(
+                "Startup: purged %d synthetic fallback financial_metric rows. "
+                "Run Full Analysis to repopulate with real SEC data.",
+                deleted,
+            )
+        else:
+            db.commit()
+    except Exception:
+        db.rollback()
     finally:
         db.close()
+
     start_scheduler()
 
 
