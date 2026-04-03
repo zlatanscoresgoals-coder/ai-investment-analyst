@@ -31,8 +31,12 @@ NET_INCOME_TAGS = (
 CFO_TAGS = ("NetCashProvidedByUsedInOperatingActivities",)
 
 CAPEX_TAGS = (
+    # Cash paid for PP&E — primary sources (cash flow statement)
     "PaymentsToAcquirePropertyPlantAndEquipment",
+    "PaymentsToAcquireProductiveAssets",        # NVDA, AMZN use this
     "PaymentsForCapitalImprovements",
+    "PurchasesOfPropertyAndEquipment",
+    # Accrued-but-not-yet-paid — last resort only; significantly understates true capex
     "CapitalExpendituresIncurredButNotYetPaid",
 )
 
@@ -53,11 +57,14 @@ TOTAL_ASSETS_TAGS = ("Assets",)
 LONG_TERM_DEBT_TAGS = (
     "LongTermDebt",
     "LongTermDebtNoncurrent",
+    "LongTermDebtAndCapitalLeaseObligations",
     "LongTermNotesPayable",
 )
 
 SHORT_TERM_DEBT_TAGS = (
     "ShortTermBorrowings",
+    "ShortTermDebt",
+    "NotesPayableCurrent",
     "CommercialPaper",
     "LineOfCredit",
 )
@@ -73,6 +80,8 @@ INTEREST_EXPENSE_TAGS = (
     "InterestExpense",
     "InterestExpenseDebt",
     "InterestAndDebtExpense",
+    "InterestExpenseNonoperating",   # NVDA, Visa, MSFT report here
+    "InterestCostsIncurred",
 )
 
 TAX_PROVISION_TAGS = ("IncomeTaxExpenseBenefit",)
@@ -85,6 +94,7 @@ INCOME_BEFORE_TAX_TAGS = (
 EQUITY_TAGS = (
     "StockholdersEquity",
     "StockholdersEquityAttributableToParent",
+    "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",  # Visa, UNH
     "PartnersCapital",
 )
 
@@ -94,6 +104,7 @@ DEPRECIATION_TAGS = (
     "DepreciationDepletionAndAmortization",
     "DepreciationAndAmortization",
     "Depreciation",
+    "DepreciationAmortizationAndAccretionNet",  # JPM, MA use this
 )
 
 EBITDA_DIRECT_TAGS = (
