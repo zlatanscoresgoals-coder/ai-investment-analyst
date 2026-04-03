@@ -108,27 +108,50 @@ OPERATING_INCOME_TAGS = ("OperatingIncomeLoss",)
 
 
 def _annual_winners_for_entries(entries: list[Any]) -> dict[int, dict[str, Any]]:
-    """One entry per fy: the one with the latest *filed* date (amendments / restatements)."""
-    by_fy: dict[int, dict[str, Any]] = {}
+    """
+    One entry per fiscal period, keyed by year(end-date).
+
+    SEC EDGAR re-files prior-year comparative figures in every subsequent 10-K,
+    all tagged with the *filing* year in the `fy` field.  For example Apple's
+    FY2025 10-K contains three rows for RevenueFromContract…, all with fy=2025
+    but with end-dates 2023-09-30, 2024-09-28, and 2025-09-27.  Keying by `fy`
+    therefore collapses three distinct periods into one and picks the wrong value.
+
+    Fix: key by year(end), require form=10-K + fp=FY, require period ≥ 340 days
+    (full-year), and among duplicates keep the one with the latest filed date
+    (picks up 10-K/A amendments).
+    """
+    by_end_year: dict[int, dict[str, Any]] = {}
     for e in entries:
         if not isinstance(e, dict):
             continue
-        if e.get("form") != "10-K":
+        if e.get("form") not in ("10-K", "10-K/A"):
             continue
         if e.get("fp") != "FY":
             continue
-        fy = e.get("fy")
-        if fy is None:
+        end_str = e.get("end") or ""
+        start_str = e.get("start") or ""
+        if not end_str:
             continue
         try:
-            fy_i = int(fy)
-        except (TypeError, ValueError):
+            end_year = int(end_str[:4])
+        except (ValueError, TypeError):
             continue
+        # Require full-year period (≥ 340 days) to exclude stub / transition periods.
+        if start_str and end_str:
+            try:
+                from datetime import date as _date
+                s = _date.fromisoformat(start_str)
+                en = _date.fromisoformat(end_str)
+                if (en - s).days < 340:
+                    continue
+            except (ValueError, TypeError):
+                pass
         filed = str(e.get("filed") or "")
-        prev = by_fy.get(fy_i)
+        prev = by_end_year.get(end_year)
         if prev is None or filed > str(prev.get("filed") or ""):
-            by_fy[fy_i] = e
-    return by_fy
+            by_end_year[end_year] = e
+    return by_end_year
 
 
 def _read_numeric_for_fy(
