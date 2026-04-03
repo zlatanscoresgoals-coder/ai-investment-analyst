@@ -1,8 +1,9 @@
+import json
 from datetime import datetime
 from pathlib import Path
 import re
 import secrets
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -78,6 +79,62 @@ def _latest_context_by_company(db: Session, company_ids: list[int]) -> dict[int,
         .all()
     )
     return {r.company_id: r for r in rows}
+
+
+def _normalize_thesis_json(raw: Any) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            return dict(parsed) if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _enrich_thesis_key_financials(db: Session, company_id: int, thesis: dict[str, Any]) -> dict[str, Any]:
+    """Ensure thesis.key_financials matches latest DB metrics (fixes empty/stale thesis_json on cards)."""
+    rows = (
+        db.query(FinancialMetric)
+        .filter(FinancialMetric.company_id == company_id)
+        .order_by(FinancialMetric.fiscal_year.desc())
+        .limit(3)
+        .all()
+    )
+    if not rows:
+        return thesis
+    latest = rows[0]
+    prior = rows[1] if len(rows) > 1 else None
+    old_kf = thesis.get("key_financials")
+    old_kf = old_kf if isinstance(old_kf, dict) else {}
+    revenue_growth: Optional[float] = None
+    if prior and prior.revenue is not None and latest.revenue is not None and float(prior.revenue) != 0:
+        revenue_growth = (float(latest.revenue) - float(prior.revenue)) / float(prior.revenue) * 100.0
+
+    def pick(col: str):
+        v = getattr(latest, col, None)
+        if v is not None:
+            return v
+        ov = old_kf.get(col)
+        return ov
+
+    kf: dict[str, Any] = {
+        "revenue": pick("revenue"),
+        "gross_margin": pick("gross_margin"),
+        "operating_margin": pick("operating_margin"),
+        "net_margin": pick("net_margin"),
+        "fcf": pick("fcf"),
+        "roic": pick("roic"),
+        "roe": pick("roe"),
+        "current_ratio": pick("current_ratio"),
+        "debt_to_ebitda": pick("debt_to_ebitda"),
+        "revenue_growth_pct": revenue_growth if revenue_growth is not None else old_kf.get("revenue_growth_pct"),
+    }
+    thesis = {**thesis, "key_financials": kf}
+    return thesis
 
 
 def _get_or_create_company(db: Session, ticker: str) -> Company:
@@ -688,6 +745,8 @@ def get_recommendation_detail(ticker: str, response: Response, db: Session = Dep
     )
     v_bundle["interpretation"] = build_valuation_interpretation(v_bundle)
 
+    thesis_out = _enrich_thesis_key_financials(db, company.id, _normalize_thesis_json(rec.thesis_json))
+
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return RecommendationDetailOut(
         ticker=company.ticker,
@@ -713,7 +772,7 @@ def get_recommendation_detail(ticker: str, response: Response, db: Session = Dep
             "pelosi_proxy": persona.pelosi_proxy_score if persona else 0.0,
             "institutional": persona.institutional_score if persona else 0.0,
         },
-        thesis=rec.thesis_json or {},
+        thesis=thesis_out,
         risks=rec.risk_json or {},
         context={
             "analyst_consensus_score": context.analyst_consensus_score if context else None,
