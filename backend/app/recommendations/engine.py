@@ -10,6 +10,7 @@ from app.recommendations.forward_case import build_forward_investment_case
 from app.recommendations.persona_elaboration import build_persona_lens_elaboration
 from app.news.investor_news import fetch_investor_news
 from app.news.news_risk import headline_news_risk_score
+from app.risk.company_risks import build_company_risk_json
 from app.scoring.blender import WEIGHTS, score_all
 
 
@@ -244,6 +245,22 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
         raw_metrics=raw_metrics,
     )
 
+    try:
+        news_rows = fetch_investor_news(company, days=14, limit=15)
+    except Exception:
+        news_rows = []
+
+    risk_json = build_company_risk_json(
+        company_name=company.name,
+        ticker=company.ticker,
+        sector=getattr(company, "sector", None),
+        latest=latest,
+        revenue_growth=revenue_growth,
+        trend_rows=trend_rows,
+        keyword_counts=keyword_counts,
+        news_rows=news_rows,
+    )
+
     recommendation = Recommendation(
         company_id=company.id,
         as_of=datetime.now(timezone.utc),
@@ -289,14 +306,7 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
             },
             "investment_case_forward": forward_case,
         },
-        risk_json={
-            "key_risks": [
-                "Macro slowdown",
-                "Multiple compression",
-                "Changes in filing risk language or litigation intensity",
-            ],
-            "risk_word_hits": {"risk": keyword_counts["risk"], "litigation": keyword_counts["litigation"]},
-        },
+        risk_json=risk_json,
         horizon="12-36 months",
     )
     db.add(recommendation)
@@ -304,10 +314,6 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
     persona_row = PersonaScore(company_id=company.id, confidence=0.65, **score_card)
     db.add(persona_row)
 
-    try:
-        news_rows = fetch_investor_news(company, days=14, limit=15)
-    except Exception:
-        news_rows = []
     news_risk = headline_news_risk_score(
         news_rows,
         neutral=settings.news_risk_neutral,

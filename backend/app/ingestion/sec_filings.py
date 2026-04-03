@@ -195,16 +195,19 @@ def fetch_last_3y_10k_urls(ticker: str) -> list[dict]:
 def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
     """
     Pull last 3 fiscal years of annual metrics from SEC Company Facts (strict 10-K / FY).
-    Uses the same waterfall helpers as valuation_data so all figures align to the same FY.
+    All figures are anchored to the same fiscal year via waterfall_money.
     """
     from app.ingestion.sec_xbrl import (
         CAPEX_TAGS,
         CFO_TAGS,
+        DEPRECIATION_TAGS,
         EQUITY_TAGS,
+        INTEREST_EXPENSE_TAGS,
         NET_INCOME_TAGS,
         OPERATING_INCOME_TAGS,
-        REVENUE_TAGS,
+        TOTAL_ASSETS_TAGS,
         collect_fiscal_years_from_revenue,
+        total_debt_for_fy,
         waterfall_money,
     )
 
@@ -224,9 +227,10 @@ def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
     _GROSS_PROFIT_TAGS = ("GrossProfit",)
     _CURRENT_ASSETS_TAGS = ("AssetsCurrent",)
     _CURRENT_LIAB_TAGS = ("LiabilitiesCurrent",)
-    _EBITDA_TAGS = ("EarningsBeforeInterestTaxesDepreciationAmortization", "EarningsBeforeInterestTaxesDepreciationAndAmortization")
-    _INTEREST_TAGS = ("InterestExpense", "InterestExpenseDebt", "InterestAndDebtExpense")
-    _EBIT_TAGS = ("OperatingIncomeLoss",)
+    _EBITDA_DIRECT_TAGS = (
+        "EarningsBeforeInterestTaxesDepreciationAmortization",
+        "EarningsBeforeInterestTaxesDepreciationAndAmortization",
+    )
 
     rev_tag, all_fy = collect_fiscal_years_from_revenue(us_gaap)
     if not rev_tag or not all_fy:
@@ -234,6 +238,18 @@ def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
 
     years = sorted(all_fy, reverse=True)[:3]
     output: list[dict[str, Any]] = []
+
+    def _safe_div(num, denom) -> Optional[float]:
+        try:
+            if num is not None and denom is not None and float(denom) != 0:
+                return float(num) / float(denom)
+        except (TypeError, ZeroDivisionError):
+            pass
+        return None
+
+    def _safe_pct(num, denom) -> Optional[float]:
+        v = _safe_div(num, denom)
+        return v * 100.0 if v is not None else None
 
     for year in years:
         rev = waterfall_money(us_gaap, (rev_tag,), year)
@@ -243,41 +259,49 @@ def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
         cfo_val = waterfall_money(us_gaap, CFO_TAGS, year)
         capex_raw = waterfall_money(us_gaap, CAPEX_TAGS, year)
         eq = waterfall_money(us_gaap, EQUITY_TAGS, year)
+        total_assets = waterfall_money(us_gaap, TOTAL_ASSETS_TAGS, year)
         ca = waterfall_money(us_gaap, _CURRENT_ASSETS_TAGS, year)
         cl = waterfall_money(us_gaap, _CURRENT_LIAB_TAGS, year)
-        ebitda = waterfall_money(us_gaap, _EBITDA_TAGS, year)
-        int_exp = waterfall_money(us_gaap, _INTEREST_TAGS, year)
+        dep = waterfall_money(us_gaap, DEPRECIATION_TAGS, year)
+        int_exp = waterfall_money(us_gaap, INTEREST_EXPENSE_TAGS, year)
+        ebitda_direct = waterfall_money(us_gaap, _EBITDA_DIRECT_TAGS, year)
 
-        def _safe_pct(num, denom):
-            try:
-                if num is not None and denom and float(denom) != 0:
-                    return float(num) / float(denom) * 100.0
-            except (TypeError, ZeroDivisionError):
-                pass
-            return None
-
+        # Derived metrics
         gross_margin = _safe_pct(gp, rev)
         operating_margin = _safe_pct(op_inc, rev)
         net_margin = _safe_pct(ni, rev)
+
         fcf = None
         if cfo_val is not None and capex_raw is not None:
             fcf = float(cfo_val) - abs(float(capex_raw))
+
         roe = _safe_pct(ni, eq)
-        current_ratio = None
-        if ca is not None and cl is not None and float(cl) != 0:
-            current_ratio = float(ca) / float(cl)
 
-        # debt/EBITDA: use EBITDA if available, else approximate from op_inc
-        ebitda_eff = ebitda
-        if ebitda_eff is None and op_inc is not None:
-            dep_approx = 0.0
-            ebitda_eff = float(op_inc) + dep_approx
+        # ROIC = NOPAT / Invested Capital; proxy: op_inc*(1-assumed_tax) / (equity + total_debt - cash)
+        roic = None
+        if op_inc is not None and total_assets is not None and cl is not None:
+            invested_capital = float(total_assets) - float(cl)
+            if invested_capital > 0:
+                nopat = float(op_inc) * 0.79  # assume ~21% effective tax
+                roic = nopat / invested_capital * 100.0
 
+        current_ratio = _safe_div(ca, cl)
+
+        # EBITDA: prefer direct tag, else build from op_inc + D&A
+        ebitda = ebitda_direct
+        if ebitda is None and op_inc is not None and dep is not None:
+            ebitda = float(op_inc) + abs(float(dep))
+
+        # Debt/EBITDA from SEC balance sheet debt
+        _, _, _, total_debt = total_debt_for_fy(us_gaap, year)
         debt_to_ebitda = None
+        if total_debt is not None and ebitda is not None and float(ebitda) > 0:
+            debt_to_ebitda = float(total_debt) / float(ebitda)
+
+        # Interest coverage = EBITDA / interest expense
         interest_coverage = None
-        if ebitda_eff and float(ebitda_eff) != 0:
-            if int_exp is not None and float(int_exp) != 0:
-                interest_coverage = float(ebitda_eff) / abs(float(int_exp))
+        if ebitda is not None and int_exp is not None and abs(float(int_exp)) > 0:
+            interest_coverage = float(ebitda) / abs(float(int_exp))
 
         output.append(
             {
@@ -287,7 +311,7 @@ def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
                 "operating_margin": operating_margin,
                 "net_margin": net_margin,
                 "fcf": fcf,
-                "roic": roe,
+                "roic": roic,
                 "roe": roe,
                 "debt_to_ebitda": debt_to_ebitda,
                 "interest_coverage": interest_coverage,
