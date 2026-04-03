@@ -11,7 +11,6 @@ from app.db import SessionLocal
 from app.ingestion.ir_fetcher import fetch_ir_filing_fallback_urls
 from app.ingestion.sec_filings import (
     build_10k_list_from_submission,
-    fetch_ir_filing_fallback_urls,
     get_submission_json_for_ticker,
     merge_sec_company_profile,
 )
