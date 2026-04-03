@@ -890,6 +890,82 @@
     }
     .list-diamond.risk li::before { color: var(--red); }
 
+    /* ── Risk tab ── */
+    .risk-overall-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 14px; border-radius: 20px; font-size: 11px;
+      font-weight: 700; letter-spacing: 0.06em; margin-bottom: 18px;
+    }
+    .risk-overall-badge.HIGH       { background: rgba(231,76,60,0.18);  color: #E74C3C; border: 1px solid rgba(231,76,60,0.35); }
+    .risk-overall-badge.MEDIUM-HIGH{ background: rgba(230,126,34,0.18); color: #E67E22; border: 1px solid rgba(230,126,34,0.35); }
+    .risk-overall-badge.MEDIUM     { background: rgba(241,196,15,0.18); color: #F1C40F; border: 1px solid rgba(241,196,15,0.35); }
+    .risk-overall-badge.LOW        { background: rgba(46,204,113,0.18); color: #2ECC71; border: 1px solid rgba(46,204,113,0.35); }
+
+    .risk-category-block { margin-bottom: 22px; }
+    .risk-category-title {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: #8E97A8; margin-bottom: 10px;
+      padding-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .risk-item {
+      display: flex; gap: 10px; align-items: flex-start;
+      padding: 10px 12px; border-radius: 8px; margin-bottom: 7px;
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+    }
+    .risk-item:hover { background: rgba(255,255,255,0.055); }
+    .risk-sev-dot {
+      flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; margin-top: 5px;
+    }
+    .risk-sev-dot.HIGH   { background: #E74C3C; box-shadow: 0 0 6px rgba(231,76,60,0.6); }
+    .risk-sev-dot.MEDIUM { background: #E67E22; box-shadow: 0 0 6px rgba(230,126,34,0.5); }
+    .risk-sev-dot.LOW    { background: #F1C40F; box-shadow: 0 0 6px rgba(241,196,15,0.4); }
+    .risk-item-text { font-size: 12.5px; line-height: 1.55; color: #C8D0DC; flex: 1; }
+    .risk-sev-label {
+      flex-shrink: 0; font-size: 9px; font-weight: 700; letter-spacing: 0.07em;
+      padding: 2px 7px; border-radius: 10px; margin-top: 3px; align-self: flex-start;
+    }
+    .risk-sev-label.HIGH   { background: rgba(231,76,60,0.2);  color: #E74C3C; }
+    .risk-sev-label.MEDIUM { background: rgba(230,126,34,0.2); color: #E67E22; }
+    .risk-sev-label.LOW    { background: rgba(241,196,15,0.2); color: #F1C40F; }
+
+    .risk-headline-trigger {
+      margin-top: 7px; padding: 7px 10px;
+      background: rgba(255,255,255,0.04); border-radius: 6px;
+      border-left: 2px solid rgba(231,76,60,0.5);
+    }
+    .risk-headline-trigger a {
+      font-size: 11px; color: #7FB3F5; text-decoration: none; line-height: 1.4;
+      display: block;
+    }
+    .risk-headline-trigger a:hover { text-decoration: underline; }
+    .risk-headline-meta { font-size: 10px; color: #6B7A8D; margin-top: 2px; }
+
+    .news-feed-section { margin-top: 24px; }
+    .news-feed-item {
+      display: flex; flex-direction: column; gap: 3px;
+      padding: 10px 12px; border-radius: 8px; margin-bottom: 7px;
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+      transition: background 0.15s;
+    }
+    .news-feed-item:hover { background: rgba(255,255,255,0.06); }
+    .news-feed-title a {
+      font-size: 12.5px; color: #C8D0DC; text-decoration: none; line-height: 1.45;
+      font-weight: 500;
+    }
+    .news-feed-title a:hover { color: #7FB3F5; text-decoration: underline; }
+    .news-feed-meta { font-size: 10px; color: #6B7A8D; display: flex; gap: 10px; }
+    .news-feed-desc { font-size: 11px; color: #8E97A8; line-height: 1.4; margin-top: 2px; }
+    .risk-summary-bar {
+      display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap;
+    }
+    .risk-count-pill {
+      display: flex; align-items: center; gap: 5px;
+      padding: 4px 12px; border-radius: 14px; font-size: 11px; font-weight: 600;
+    }
+    .risk-count-pill.high   { background: rgba(231,76,60,0.15);  color: #E74C3C; }
+    .risk-count-pill.medium { background: rgba(230,126,34,0.15); color: #E67E22; }
+    .risk-count-pill.low    { background: rgba(241,196,15,0.15); color: #F1C40F; }
+
     .lens-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
@@ -3361,12 +3437,106 @@ function buildCard(item) {
     lensCards +
     "</div></div>";
 
+  // ── Risk tab ──────────────────────────────────────────────────────────────
+  const riskData   = d.risks || {};
+  const riskItems  = riskData.risk_items || [];
+  const liveNews   = riskData.live_news  || [];
+  const overallLvl = riskData.overall_risk_level || (risks.length ? "MEDIUM" : "LOW");
+  const highCnt    = riskData.high_count   ?? riskItems.filter(x => x.severity === "HIGH").length;
+  const medCnt     = riskData.medium_count ?? riskItems.filter(x => x.severity === "MEDIUM").length;
+  const lowCnt     = riskData.low_count    ?? riskItems.filter(x => x.severity === "LOW").length;
+
+  // Overall badge
+  const overallBadgeIcon = overallLvl === "HIGH" ? "⚠" : overallLvl === "MEDIUM-HIGH" ? "▲" : overallLvl === "MEDIUM" ? "◆" : "✓";
+  const overallBadgeHtml =
+    '<div class="risk-overall-badge ' + esc(overallLvl) + '">' +
+    overallBadgeIcon + ' Overall Risk: ' + esc(overallLvl) +
+    '</div>';
+
+  // Summary count pills
+  const summaryBarHtml =
+    '<div class="risk-summary-bar">' +
+    (highCnt > 0 ? '<div class="risk-count-pill high">⬤ ' + highCnt + ' High</div>' : '') +
+    (medCnt  > 0 ? '<div class="risk-count-pill medium">⬤ ' + medCnt + ' Medium</div>' : '') +
+    (lowCnt  > 0 ? '<div class="risk-count-pill low">⬤ ' + lowCnt + ' Low</div>' : '') +
+    '</div>';
+
+  // Group risk items by category
+  const riskByCategory = {};
+  const categoryOrder  = ["Financial Health", "News & Market", "SEC Filing Signals", "Sector & Macro"];
+  (riskItems.length ? riskItems : risks.map(t => ({text: t, severity: "MEDIUM", category: "Risk Factors", headlines: []}))).forEach(item => {
+    const cat = item.category || "Risk Factors";
+    if (!riskByCategory[cat]) riskByCategory[cat] = [];
+    riskByCategory[cat].push(item);
+  });
+
+  // Sort categories in preferred order
+  const sortedCats = [...new Set([...categoryOrder, ...Object.keys(riskByCategory)])].filter(c => riskByCategory[c]);
+
+  function renderRiskItem(item) {
+    const sev = item.severity || "MEDIUM";
+    const headlines = (item.headlines || []).slice(0, 2);
+    const hlHtml = headlines.map(h => {
+      const src  = h.source_name || h.source || "";
+      const date = h.published_at ? h.published_at.slice(0,10) : "";
+      return '<div class="risk-headline-trigger">' +
+        '<a href="' + esc(h.url || "#") + '" target="_blank" rel="noopener">' + esc(h.title || "") + '</a>' +
+        '<div class="risk-headline-meta">' + (src ? esc(src) : "") + (date ? (src ? " · " : "") + esc(date) : "") + '</div>' +
+        '</div>';
+    }).join("");
+    return '<div class="risk-item">' +
+      '<div class="risk-sev-dot ' + sev + '"></div>' +
+      '<div style="flex:1">' +
+        '<div class="risk-item-text">' + esc(item.text || "") + '</div>' +
+        hlHtml +
+      '</div>' +
+      '<div class="risk-sev-label ' + sev + '">' + esc(sev) + '</div>' +
+      '</div>';
+  }
+
+  const riskCategoriesHtml = sortedCats.map(cat => {
+    const items = riskByCategory[cat] || [];
+    // Sort HIGH first within each category
+    const sorted = [...items].sort((a,b) => {
+      const order = {HIGH:0,"MEDIUM-HIGH":1,MEDIUM:2,LOW:3};
+      return (order[a.severity]??2) - (order[b.severity]??2);
+    });
+    return '<div class="risk-category-block">' +
+      '<div class="risk-category-title">' + esc(cat) + '</div>' +
+      sorted.map(renderRiskItem).join("") +
+      '</div>';
+  }).join("");
+
+  // Live news feed
+  const newsFeedHtml = liveNews.length
+    ? '<div class="news-feed-section">' +
+      '<p class="sec-label" style="margin-bottom:12px">Live News Feed <span style="font-size:10px;color:#6B7A8D;font-weight:400;margin-left:6px">(' + liveNews.length + ' recent headlines)</span></p>' +
+      liveNews.map(h => {
+        const src  = h.source || "";
+        const date = h.published_at ? h.published_at.slice(0,10) : "";
+        const desc = h.description || "";
+        return '<div class="news-feed-item">' +
+          '<div class="news-feed-title"><a href="' + esc(h.url || "#") + '" target="_blank" rel="noopener">' + esc(h.title || "") + '</a></div>' +
+          '<div class="news-feed-meta">' +
+            (src  ? '<span>' + esc(src)  + '</span>' : '') +
+            (date ? '<span>' + esc(date) + '</span>' : '') +
+          '</div>' +
+          (desc ? '<div class="news-feed-desc">' + esc(desc.slice(0,160)) + (desc.length > 160 ? '…' : '') + '</div>' : '') +
+          '</div>';
+      }).join("") +
+      '</div>'
+    : '<div style="font-size:12px;color:#6B7A8D;margin-top:16px;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06)">No recent news headlines available. News is fetched live from trusted financial outlets.</div>';
+
   const tabRisk =
     '<div class="meridian-tab-panel" data-tab="risk" role="tabpanel">' +
-    '<p class="sec-label">Principal risks</p>' +
-    '<ul class="list-diamond risk">' +
-    (risks.length ? risks.map((x) => "<li>" + esc(x) + "</li>").join("") : "<li>No principal risks listed.</li>") +
-    "</ul></div>";
+    overallBadgeHtml +
+    summaryBarHtml +
+    (riskCategoriesHtml || '<div style="color:#6B7A8D;font-size:12px">No risk factors identified.</div>') +
+    newsFeedHtml +
+    '<div style="font-size:10px;color:#6B7A8D;margin-top:16px;padding:8px 12px;background:rgba(255,255,255,0.02);border-radius:6px">' +
+    '⚡ Risk factors are generated live from real-time news, SEC 10-K financial metrics, 3-year trends, and sector analysis. News is fetched fresh on each page load.' +
+    '</div>' +
+    '</div>';
 
   const tabSec =
     '<div class="meridian-tab-panel" data-tab="sec" role="tabpanel">' +

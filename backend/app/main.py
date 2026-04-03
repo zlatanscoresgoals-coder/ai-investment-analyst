@@ -30,6 +30,7 @@ from app.recommendations.ranking import composite_leaderboard_score
 from app.valuation_data import fetch_latest_valuation_inputs
 from app.valuation_interpretation import build_valuation_interpretation
 from app.valuation_math import build_valuation_bundle
+from app.risk.company_risks import build_company_risk_json
 from app.risk.critical_events import is_actionable_critical_alert
 from app.schemas import (
     GenericMessage,
@@ -789,6 +790,44 @@ def get_recommendation_detail(ticker: str, response: Response, db: Session = Dep
     _merge_sec_companyfacts_into_key_financials(kf, sec_v)
     thesis_out["key_financials"] = kf
 
+    # Rebuild risk_json live using fresh news so Risk tab is always current.
+    from app.models import FinancialMetric as _FM
+    _metric_rows = (
+        db.query(_FM)
+        .filter(_FM.company_id == company.id)
+        .order_by(_FM.fiscal_year.desc())
+        .limit(3)
+        .all()
+    )
+    _latest_m = _metric_rows[0] if _metric_rows else None
+    _prior_m  = _metric_rows[1] if len(_metric_rows) > 1 else None
+    _rev_growth = 0.0
+    if _latest_m and _prior_m and _prior_m.revenue and float(_prior_m.revenue) != 0:
+        _rev_growth = (float(_latest_m.revenue or 0) - float(_prior_m.revenue)) / abs(float(_prior_m.revenue)) * 100.0
+    _trend_rows = [
+        {
+            "fiscal_year": m.fiscal_year,
+            "operating_margin": m.operating_margin,
+            "gross_margin": m.gross_margin,
+            "net_margin": m.net_margin,
+            "revenue": m.revenue,
+            "fcf": m.fcf,
+            "roe": m.roe,
+        }
+        for m in _metric_rows
+    ]
+    _kw = (thesis_out.get("filing_word_search") or {}) if isinstance(thesis_out, dict) else {}
+    live_risk_json = build_company_risk_json(
+        company_name=company.name,
+        ticker=company.ticker,
+        sector=sector_out,
+        latest=_latest_m,
+        revenue_growth=_rev_growth,
+        trend_rows=_trend_rows,
+        keyword_counts=_kw,
+        news_rows=news_rows,
+    ) if _latest_m else (rec.risk_json or {})
+
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return RecommendationDetailOut(
         ticker=company.ticker,
@@ -816,7 +855,7 @@ def get_recommendation_detail(ticker: str, response: Response, db: Session = Dep
         },
         key_financials=dict(kf),
         thesis=thesis_out,
-        risks=rec.risk_json or {},
+        risks=live_risk_json,
         context={
             "analyst_consensus_score": context.analyst_consensus_score if context else None,
             "news_risk_score": context.news_risk_score if context else None,
