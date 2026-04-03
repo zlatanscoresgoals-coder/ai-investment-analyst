@@ -28,7 +28,34 @@ class _MetricProxy:
 
 
 def _ensure_metric_rows(db: Session, company: Company) -> list:
-    """Return FinancialMetric rows from DB; if empty, fetch from SEC and persist them."""
+    """
+    Always re-fetch the latest 3 fiscal years from SEC Company Facts and upsert into DB.
+    This ensures that newly filed 10-Ks (e.g. FY2025 filed in early 2026) are picked up
+    on every analysis run rather than serving stale cached rows.
+    Falls back to existing DB rows only if SEC returns nothing.
+    """
+    sec_metrics = fetch_financial_metrics_last_3y(company.ticker.upper())
+
+    if sec_metrics:
+        for m in sec_metrics:
+            fy = m["fiscal_year"]
+            existing = (
+                db.query(FinancialMetric)
+                .filter(
+                    FinancialMetric.company_id == company.id,
+                    FinancialMetric.fiscal_year == fy,
+                )
+                .first()
+            )
+            if existing:
+                # Update every field in-place so we pick up restated/amended values.
+                for field, val in m.items():
+                    if field != "fiscal_year":
+                        setattr(existing, field, val)
+            else:
+                db.add(FinancialMetric(company_id=company.id, **m))
+        db.commit()
+
     rows = (
         db.query(FinancialMetric)
         .filter(FinancialMetric.company_id == company.id)
@@ -36,27 +63,11 @@ def _ensure_metric_rows(db: Session, company: Company) -> list:
         .limit(3)
         .all()
     )
-    if rows:
-        return rows
-
-    # DB is empty — pull directly from SEC Company Facts and write to DB.
-    sec_metrics = fetch_financial_metrics_last_3y(company.ticker.upper())
-    if not sec_metrics:
+    if not rows:
         raise ValueError(
             f"No financial metrics available for {company.ticker}. "
             "SEC Company Facts returned no annual data."
         )
-    for m in sec_metrics:
-        db.add(FinancialMetric(company_id=company.id, **m))
-    db.commit()
-
-    rows = (
-        db.query(FinancialMetric)
-        .filter(FinancialMetric.company_id == company.id)
-        .order_by(FinancialMetric.fiscal_year.desc())
-        .limit(3)
-        .all()
-    )
     return rows
 
 

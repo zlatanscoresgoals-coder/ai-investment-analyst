@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.sql import func
 
 from app.db import Base
@@ -32,6 +32,7 @@ class Filing(Base):
 
 class FinancialMetric(Base):
     __tablename__ = "financial_metrics"
+    __table_args__ = (UniqueConstraint("company_id", "fiscal_year", name="uq_financial_metric_company_fy"),)
 
     id = Column(Integer, primary_key=True, index=True)
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
