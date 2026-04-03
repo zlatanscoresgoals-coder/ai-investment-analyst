@@ -14,6 +14,7 @@ REVENUE_TAGS = (
     "RevenueFromContractWithCustomerExcludingAssessedTax",
     "RevenueFromContractWithCustomerIncludingAssessedTax",
     "Revenues",
+    "NetRevenues",
     "SalesRevenueNet",
     "SalesRevenueGoodsNet",
     "RevenuesNetOfInterestExpense",
@@ -22,8 +23,9 @@ REVENUE_TAGS = (
 
 NET_INCOME_TAGS = (
     "NetIncomeLoss",
-    "NetIncomeLossAvailableToCommonStockholdersBasic",
     "ProfitLoss",
+    "NetIncomeLossAvailableToCommonStockholdersBasic",
+    "IncomeLossFromContinuingOperations",
 )
 
 CFO_TAGS = ("NetCashProvidedByUsedInOperatingActivities",)
@@ -238,9 +240,15 @@ def shares_outstanding_for_fy(us_gaap: dict[str, Any], fy: int) -> Optional[floa
 
 def collect_fiscal_years_from_revenue(us_gaap: dict[str, Any]) -> tuple[Optional[str], list[int]]:
     """
-    First revenue tag in waterfall that has any 10-K FY USD facts; return that tag and
-    all fiscal years present (deduped), sorted descending.
+    Pick the revenue tag whose most-recent 10-K FY data is the latest calendar year.
+    This handles companies that switched GAAP tags over time (e.g. Mastercard moved from
+    RevenueFromContractWithCustomer… to Revenues after 2021). Without this, the first
+    matching tag wins even if it only has stale data from years ago.
     """
+    best_tag: Optional[str] = None
+    best_max_year: int = 0
+    best_years: list[int] = []
+
     for tag in REVENUE_TAGS:
         obj = us_gaap.get(tag)
         if not isinstance(obj, dict):
@@ -250,10 +258,18 @@ def collect_fiscal_years_from_revenue(us_gaap: dict[str, Any]) -> tuple[Optional
             raw = obj.get("units", {}).get(uk)
             if not raw or not isinstance(raw, list):
                 continue
-            winners = _annual_winners_for_entries(raw)
-            years.update(winners.keys())
-        if years:
-            return tag, sorted(years, reverse=True)
+            w = _annual_winners_for_entries(raw)
+            years.update(w.keys())
+        if not years:
+            continue
+        max_year = max(years)
+        if max_year > best_max_year:
+            best_max_year = max_year
+            best_tag = tag
+            best_years = sorted(years, reverse=True)
+
+    if best_tag:
+        return best_tag, best_years
     return None, []
 
 
