@@ -11,12 +11,11 @@ from app.db import SessionLocal
 from app.ingestion.ir_fetcher import fetch_ir_filing_fallback_urls
 from app.ingestion.sec_filings import (
     build_10k_list_from_submission,
-    fallback_financial_metrics_last_3y,
-    fetch_financial_metrics_last_3y,
+    fetch_ir_filing_fallback_urls,
     get_submission_json_for_ticker,
     merge_sec_company_profile,
 )
-from app.models import Company, Filing, FinancialMetric
+from app.models import Company, Filing
 from app.recommendations.engine import run_recommendation_for_company
 from app.universe import get_candidate_companies, get_candidate_tickers
 
@@ -52,6 +51,7 @@ def _sync_universe(db):
 
 
 def _fetch_filings_and_metrics(db, company):
+    """Sync SEC company profile and 10-K filing list. Metrics are fetched by the engine."""
     sub = get_submission_json_for_ticker(company.ticker.upper())
     if sub and merge_sec_company_profile(company, sub):
         db.add(company)
@@ -77,20 +77,6 @@ def _fetch_filings_and_metrics(db, company):
                 raw_text=item.get("raw_text"),
             )
         )
-    metrics = fetch_financial_metrics_last_3y(company.ticker.upper())
-    if not metrics:
-        metrics = fallback_financial_metrics_last_3y(company.ticker.upper())
-    for metric in metrics:
-        exists = (
-            db.query(FinancialMetric)
-            .filter(FinancialMetric.company_id == company.id, FinancialMetric.fiscal_year == metric["fiscal_year"])
-            .first()
-        )
-        if exists:
-            for key, value in metric.items():
-                setattr(exists, key, value)
-        else:
-            db.add(FinancialMetric(company_id=company.id, **metric))
     db.commit()
 
 

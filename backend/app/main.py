@@ -16,8 +16,6 @@ from app.ingestion.ir_fetcher import fetch_ir_filing_fallback_urls
 from app.ingestion.sec_filings import (
     apply_sec_metadata_to_company,
     build_10k_list_from_submission,
-    fallback_financial_metrics_last_3y,
-    fetch_financial_metrics_last_3y,
     get_submission_json_for_ticker,
     merge_sec_company_profile,
     metadata_from_submission,
@@ -206,24 +204,10 @@ def _store_filings_and_metrics(db: Session, company: Company) -> tuple[int, int,
             )
         )
 
-    metrics = fetch_financial_metrics_last_3y(company.ticker.upper())
-    used_fallback = False
-    if not metrics:
-        metrics = fallback_financial_metrics_last_3y(company.ticker.upper())
-        used_fallback = bool(metrics)
-    for metric in metrics:
-        exists = (
-            db.query(FinancialMetric)
-            .filter(FinancialMetric.company_id == company.id, FinancialMetric.fiscal_year == metric["fiscal_year"])
-            .first()
-        )
-        if exists:
-            for key, value in metric.items():
-                setattr(exists, key, value)
-        else:
-            db.add(FinancialMetric(company_id=company.id, **metric))
     db.commit()
-    return len(filings), len(metrics), used_fallback
+    # Financial metrics are fetched from SEC and persisted by the recommendation engine
+    # (_ensure_metric_rows). Never write fallback/synthetic data to the DB here.
+    return len(filings), 0, False
 
 
 def _load_dashboard_html(last_run_display: str) -> str:
