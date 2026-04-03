@@ -3093,7 +3093,8 @@ async function loadRecs() {
 }
 
 function buildCard(item) {
-  const d = item.detail || {};
+  const nested = item.detail && typeof item.detail === "object" ? item.detail : {};
+  const d = Object.assign({}, item, nested);
   const whyNow = (d.thesis && d.thesis.why_now) ? d.thesis.why_now : [];
   const personaReasoning = (d.thesis && d.thesis.persona_reasoning) ? d.thesis.persona_reasoning : [];
   const filingWords = (d.thesis && d.thesis.filing_word_search) ? d.thesis.filing_word_search : {};

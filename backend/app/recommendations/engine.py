@@ -265,7 +265,10 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
     persona_row = PersonaScore(company_id=company.id, confidence=0.65, **score_card)
     db.add(persona_row)
 
-    news_rows = fetch_investor_news(company, days=14, limit=15)
+    try:
+        news_rows = fetch_investor_news(company, days=14, limit=15)
+    except Exception:
+        news_rows = []
     news_risk = headline_news_risk_score(
         news_rows,
         neutral=settings.news_risk_neutral,

@@ -185,8 +185,10 @@ async def auth_middleware(request: Request, call_next):
     if token in _active_sessions:
         return await call_next(request)
 
-    # Browser paths redirect to login; API paths return 401.
-    if path == "/" or path == "/dashboard" or request.method == "GET":
+    # Browser HTML routes redirect; API routes must return 401 JSON (never 303), or fetch() follows
+    # to /login HTML and JSON parsers leave dashboards without thesis/financials.
+    browser_get_paths = frozenset({"/", "/dashboard", "/portfolio"})
+    if request.method == "GET" and path in browser_get_paths:
         return RedirectResponse(url="/login", status_code=303)
     raise HTTPException(status_code=401, detail="Authentication required.")
 
@@ -668,7 +670,10 @@ def get_recommendation_detail(ticker: str, response: Response, db: Session = Dep
         apply_sec_metadata_to_company(db, company)
         db.refresh(company)
     live_q = fetch_live_quote(company.ticker)
-    news_rows = fetch_investor_news(company)
+    try:
+        news_rows = fetch_investor_news(company)
+    except Exception:
+        news_rows = []
 
     sec_v = fetch_latest_valuation_inputs(company.ticker)
     sector_out = resolve_sector_for_display(company.ticker, company.sector)
