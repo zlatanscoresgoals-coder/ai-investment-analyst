@@ -235,7 +235,7 @@ def collect_fiscal_years_from_revenue(us_gaap: dict[str, Any]) -> tuple[Optional
 
 
 def revenue_for_fy(us_gaap: dict[str, Any], fy: int, tag: str) -> Optional[float]:
-    return _read_money_for_fy(us_gaap, tag, fy)
+    return waterfall_money(us_gaap, (tag,), fy)
 
 
 def effective_tax_rate_pct(tax: Optional[float], pretax: Optional[float]) -> Optional[float]:

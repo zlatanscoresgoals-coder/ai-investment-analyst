@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.analysis.financial_ratios import compute_financial_ratios
 from app.config import settings
+from app.ingestion.sec_filings import fetch_financial_metrics_last_3y
 from app.models import Company, ContextSignal, Filing, FinancialMetric, PersonaScore, Recommendation
 from app.recommendations.forward_case import build_forward_investment_case
 from app.recommendations.persona_elaboration import build_persona_lens_elaboration
@@ -12,16 +13,54 @@ from app.news.news_risk import headline_news_risk_score
 from app.scoring.blender import WEIGHTS, score_all
 
 
-def run_recommendation_for_company(db: Session, company: Company) -> Recommendation:
-    metric_rows = (
+class _MetricProxy:
+    """Lightweight stand-in for FinancialMetric when DB rows are absent."""
+    __slots__ = (
+        "fiscal_year", "revenue", "gross_margin", "operating_margin", "net_margin",
+        "fcf", "roic", "roe", "debt_to_ebitda", "interest_coverage",
+        "current_ratio", "valuation_pe", "valuation_ev_ebitda",
+    )
+
+    def __init__(self, d: dict):
+        for s in self.__slots__:
+            setattr(self, s, d.get(s))
+
+
+def _ensure_metric_rows(db: Session, company: Company) -> list:
+    """Return FinancialMetric rows from DB; if empty, fetch from SEC and persist them."""
+    rows = (
         db.query(FinancialMetric)
         .filter(FinancialMetric.company_id == company.id)
         .order_by(FinancialMetric.fiscal_year.desc())
         .limit(3)
         .all()
     )
-    if not metric_rows:
-        raise ValueError(f"No financial metrics available for {company.ticker}. Fetch filings first.")
+    if rows:
+        return rows
+
+    # DB is empty — pull directly from SEC Company Facts and write to DB.
+    sec_metrics = fetch_financial_metrics_last_3y(company.ticker.upper())
+    if not sec_metrics:
+        raise ValueError(
+            f"No financial metrics available for {company.ticker}. "
+            "SEC Company Facts returned no annual data."
+        )
+    for m in sec_metrics:
+        db.add(FinancialMetric(company_id=company.id, **m))
+    db.commit()
+
+    rows = (
+        db.query(FinancialMetric)
+        .filter(FinancialMetric.company_id == company.id)
+        .order_by(FinancialMetric.fiscal_year.desc())
+        .limit(3)
+        .all()
+    )
+    return rows
+
+
+def run_recommendation_for_company(db: Session, company: Company) -> Recommendation:
+    metric_rows = _ensure_metric_rows(db, company)
 
     latest = metric_rows[0]
     prior = metric_rows[1] if len(metric_rows) > 1 else None

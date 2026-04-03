@@ -192,30 +192,22 @@ def fetch_last_3y_10k_urls(ticker: str) -> list[dict]:
     return build_10k_list_from_submission(sub)
 
 
-def _pick_latest_annual_fact(companyfacts: dict[str, Any], tags: list[str]) -> dict[int, float]:
-    us_gaap = companyfacts.get("facts", {}).get("us-gaap", {})
-    annual_by_year: dict[int, float] = {}
-
-    for tag in tags:
-        tag_obj = us_gaap.get(tag)
-        if not tag_obj:
-            continue
-        for _, entries in tag_obj.get("units", {}).items():
-            for entry in entries:
-                if entry.get("form") != "10-K":
-                    continue
-                fy = entry.get("fy")
-                val = entry.get("val")
-                if fy and isinstance(val, (int, float)):
-                    annual_by_year[int(fy)] = float(val)
-            if annual_by_year:
-                break
-        if annual_by_year:
-            break
-    return annual_by_year
-
-
 def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
+    """
+    Pull last 3 fiscal years of annual metrics from SEC Company Facts (strict 10-K / FY).
+    Uses the same waterfall helpers as valuation_data so all figures align to the same FY.
+    """
+    from app.ingestion.sec_xbrl import (
+        CAPEX_TAGS,
+        CFO_TAGS,
+        EQUITY_TAGS,
+        NET_INCOME_TAGS,
+        OPERATING_INCOME_TAGS,
+        REVENUE_TAGS,
+        collect_fiscal_years_from_revenue,
+        waterfall_money,
+    )
+
     cik = get_cik_for_ticker(ticker)
     if not cik:
         return []
@@ -225,38 +217,67 @@ def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
     except Exception:
         return []
 
-    revenue = _pick_latest_annual_fact(
-        companyfacts,
-        ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet"],
-    )
-    gross_profit = _pick_latest_annual_fact(companyfacts, ["GrossProfit"])
-    operating_income = _pick_latest_annual_fact(companyfacts, ["OperatingIncomeLoss"])
-    net_income = _pick_latest_annual_fact(companyfacts, ["NetIncomeLoss"])
-    cfo = _pick_latest_annual_fact(companyfacts, ["NetCashProvidedByUsedInOperatingActivities"])
-    capex = _pick_latest_annual_fact(companyfacts, ["PaymentsToAcquirePropertyPlantAndEquipment"])
-    equity = _pick_latest_annual_fact(companyfacts, ["StockholdersEquity"])
-    current_assets = _pick_latest_annual_fact(companyfacts, ["AssetsCurrent"])
-    current_liabilities = _pick_latest_annual_fact(companyfacts, ["LiabilitiesCurrent"])
+    us_gaap = companyfacts.get("facts", {}).get("us-gaap", {})
+    if not isinstance(us_gaap, dict):
+        return []
 
-    years = sorted(revenue.keys(), reverse=True)[:3]
+    _GROSS_PROFIT_TAGS = ("GrossProfit",)
+    _CURRENT_ASSETS_TAGS = ("AssetsCurrent",)
+    _CURRENT_LIAB_TAGS = ("LiabilitiesCurrent",)
+    _EBITDA_TAGS = ("EarningsBeforeInterestTaxesDepreciationAmortization", "EarningsBeforeInterestTaxesDepreciationAndAmortization")
+    _INTEREST_TAGS = ("InterestExpense", "InterestExpenseDebt", "InterestAndDebtExpense")
+    _EBIT_TAGS = ("OperatingIncomeLoss",)
+
+    rev_tag, all_fy = collect_fiscal_years_from_revenue(us_gaap)
+    if not rev_tag or not all_fy:
+        return []
+
+    years = sorted(all_fy, reverse=True)[:3]
     output: list[dict[str, Any]] = []
-    for year in years:
-        rev = revenue.get(year)
-        gp = gross_profit.get(year)
-        op_inc = operating_income.get(year)
-        ni = net_income.get(year)
-        cfo_val = cfo.get(year)
-        capex_val = capex.get(year)
-        eq = equity.get(year)
-        ca = current_assets.get(year)
-        cl = current_liabilities.get(year)
 
-        gross_margin = (gp / rev * 100.0) if gp and rev else None
-        operating_margin = (op_inc / rev * 100.0) if op_inc and rev else None
-        net_margin = (ni / rev * 100.0) if ni and rev else None
-        fcf = (cfo_val - abs(capex_val)) if cfo_val is not None and capex_val is not None else None
-        roe = (ni / eq * 100.0) if ni and eq else None
-        current_ratio = (ca / cl) if ca and cl else None
+    for year in years:
+        rev = waterfall_money(us_gaap, (rev_tag,), year)
+        gp = waterfall_money(us_gaap, _GROSS_PROFIT_TAGS, year)
+        op_inc = waterfall_money(us_gaap, OPERATING_INCOME_TAGS, year)
+        ni = waterfall_money(us_gaap, NET_INCOME_TAGS, year)
+        cfo_val = waterfall_money(us_gaap, CFO_TAGS, year)
+        capex_raw = waterfall_money(us_gaap, CAPEX_TAGS, year)
+        eq = waterfall_money(us_gaap, EQUITY_TAGS, year)
+        ca = waterfall_money(us_gaap, _CURRENT_ASSETS_TAGS, year)
+        cl = waterfall_money(us_gaap, _CURRENT_LIAB_TAGS, year)
+        ebitda = waterfall_money(us_gaap, _EBITDA_TAGS, year)
+        int_exp = waterfall_money(us_gaap, _INTEREST_TAGS, year)
+
+        def _safe_pct(num, denom):
+            try:
+                if num is not None and denom and float(denom) != 0:
+                    return float(num) / float(denom) * 100.0
+            except (TypeError, ZeroDivisionError):
+                pass
+            return None
+
+        gross_margin = _safe_pct(gp, rev)
+        operating_margin = _safe_pct(op_inc, rev)
+        net_margin = _safe_pct(ni, rev)
+        fcf = None
+        if cfo_val is not None and capex_raw is not None:
+            fcf = float(cfo_val) - abs(float(capex_raw))
+        roe = _safe_pct(ni, eq)
+        current_ratio = None
+        if ca is not None and cl is not None and float(cl) != 0:
+            current_ratio = float(ca) / float(cl)
+
+        # debt/EBITDA: use EBITDA if available, else approximate from op_inc
+        ebitda_eff = ebitda
+        if ebitda_eff is None and op_inc is not None:
+            dep_approx = 0.0
+            ebitda_eff = float(op_inc) + dep_approx
+
+        debt_to_ebitda = None
+        interest_coverage = None
+        if ebitda_eff and float(ebitda_eff) != 0:
+            if int_exp is not None and float(int_exp) != 0:
+                interest_coverage = float(ebitda_eff) / abs(float(int_exp))
 
         output.append(
             {
@@ -266,10 +287,10 @@ def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
                 "operating_margin": operating_margin,
                 "net_margin": net_margin,
                 "fcf": fcf,
-                "roic": roe,  # proxy when invested capital is not directly available.
+                "roic": roe,
                 "roe": roe,
-                "debt_to_ebitda": None,
-                "interest_coverage": None,
+                "debt_to_ebitda": debt_to_ebitda,
+                "interest_coverage": interest_coverage,
                 "current_ratio": current_ratio,
                 "shares_outstanding": None,
                 "valuation_pe": None,
