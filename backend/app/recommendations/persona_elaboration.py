@@ -11,55 +11,60 @@ from typing import Any, Optional
 LENS_COPY: dict[str, dict[str, str]] = {
     "buffett": {
         "measures": (
-            "This lens approximates an owner-operator read: economic moat via returns and margins, "
-            "sustainability of cash generation, and whether leverage looks prudent relative to cash flows—not hype cycles."
+            "This lens approximates an owner-operator read: economic moat via sector-relative ROIC and gross margins, "
+            "FCF margin as a fraction of revenue (not raw dollars), leverage discipline, and improving multi-year trends."
         ),
         "formula": (
-            "Scoring engine: base 50 + 0.8×ROIC(%) + 0.3×gross margin(%) + FCF (in billions) − 4×Debt/EBITDA, clamped to 0–100."
+            "Scoring engine: base 50 + soft(ROIC, sector band, ±14) + soft(gross margin, sector band, ±10) "
+            "+ soft(FCF/revenue %, 15%→0%, ±10) + soft(Debt/EBITDA, 0.5→3.5, ±8) "
+            "+ trend bonuses (gross margin trend ±3, FCF CAGR ±3). Sector-relative thresholds applied."
         ),
     },
     "ackman": {
         "measures": (
             "Ackman-style concentrated quality: operating excellence, capital efficiency, and balance-sheet capacity "
-            "to withstand stress—favoring businesses that compound through operations rather than financial engineering."
+            "to withstand stress. Margin expansion over 3 years is rewarded as a secondary signal."
         ),
         "formula": (
-            "Scoring engine: base 45 + 0.6×operating margin(%) + 2.0×interest coverage + 0.5×ROIC(%), clamped 0–100."
+            "Scoring engine: base 45 + soft(op margin, sector band, ±14) + soft(interest coverage, 12→3, ±10) "
+            "+ soft(ROIC, sector band, ±8) + operating margin trend bonus (±5). Sector-relative thresholds."
         ),
     },
     "wood": {
         "measures": (
-            "Growth and innovation tilt: top-line momentum as a proxy for reinvestment and optionality, "
-            "paired with gross structure and a valuation guardrail so growth is not chased blindly."
+            "Growth and innovation tilt: top-line momentum is primary, gross margin shows scalability, "
+            "FCF CAGR shows the growth is converting to cash. P/E penalty removed—Wood accepts high valuations."
         ),
         "formula": (
-            "Scoring engine: base 40 + 1.0×revenue growth(%) + 0.4×gross margin(%) − 0.15×P/E, clamped 0–100."
+            "Scoring engine: base 35 + soft(revenue growth %, 25→5, ±20) + soft(gross margin %, 60→30, ±10) "
+            "+ FCF CAGR bonus (±8). No P/E penalty."
         ),
     },
     "burry": {
         "measures": (
-            "Balance-sheet-first and contrarian value: liquidity cushion, leverage discipline, interest burden, "
-            "and headline valuation multiples—stressing survival and margin of safety."
+            "Balance-sheet-first and contrarian value: liquidity cushion, sector-adjusted leverage discipline, "
+            "interest burden, and headline valuation multiples. Deleveraging trend is rewarded."
         ),
         "formula": (
-            "Scoring engine: base 50 + 8×current ratio + 1.2×interest coverage − 5×Debt/EBITDA − 0.2×P/E, clamped 0–100."
+            "Scoring engine: base 45 + soft(current ratio, 2.5→0.8, ±12) + soft(Debt/EBITDA, sector-adj, ±12) "
+            "+ soft(interest coverage, 10→2, ±8) + soft(P/E, 12→30, ±8) + debt trend bonus (±4). Sector-adjusted."
         ),
     },
     "pelosi_proxy": {
         "measures": (
-            "A deliberately lightweight overlay inspired by public trade-disclosure narratives. "
-            "It does not ingest congressional filings in this build; it anchors the blend with a neutral midpoint so "
-            "the slot exists for future signal wiring."
+            "This lens has been retired from active scoring. Its 5% weight has been redistributed to the "
+            "Buffett (+3%) and Burry (+2%) lenses. Score is shown as 0 for schema compatibility."
         ),
-        "formula": "Scoring engine: fixed 55.0 in this build (no fundamental inputs). Blend weight is small (5%).",
+        "formula": "Retired. Score = 0. Weight = 0.",
     },
     "institutional": {
         "measures": (
-            "Allocator constraints: scale (market cap proxy), tradability/liquidity score, and profitability breadth (ROE)—"
-            "approximating whether a name is mechanically eligible for large mandate sleeves."
+            "Allocator constraints: ROE relative to sector norms, revenue scale as a size proxy (replaces "
+            "hardcoded market cap), and net margin as an earnings quality signal."
         ),
         "formula": (
-            "Scoring engine: base 50 + 0.2×market cap (billions) + 0.25×liquidity score + 0.4×ROE(%), clamped 0–100."
+            "Scoring engine: base 45 + soft(ROE %, sector band, ±14) + soft(revenue $B, 50→5, ±8) "
+            "+ soft(net margin %, 15→3, ±8) + ROE trend bonus (±4). Sector-relative thresholds."
         ),
     },
 }
@@ -174,33 +179,41 @@ def _driver_lines(lens_key: str, latest: Any, revenue_growth: float, raw_metrics
     def gv(attr: str) -> Optional[float]:
         return _f(getattr(latest, attr, None))
 
+    rev = gv("revenue") or 0.0
+    rev_bn = rev / 1e9
+
     if lens_key == "buffett":
-        lines.append(f"ROIC (proxy) {gv('roic') or 0:.2f}% — primary positive lever in the Buffett formula (+0.8×).")
-        lines.append(f"Gross margin {gv('gross_margin') or 0:.2f}% — adds +0.3× to the score.")
-        fcf_b = (gv('fcf') or 0) / 1_000_000_000
-        lines.append(f"Free cash flow ~{fcf_b:.2f}B (as stored) — enters roughly dollar-for-dollar in the engine.")
-        lines.append(f"Debt/EBITDA {gv('debt_to_ebitda') or 0:.2f} — each turn costs −4 points until clamped.")
+        lines.append(f"ROIC {gv('roic') or 0:.1f}% — primary moat signal; sector-relative threshold applied (±14 pts).")
+        lines.append(f"Gross margin {gv('gross_margin') or 0:.1f}% — pricing power proxy (±10 pts, sector-adjusted).")
+        fcf = gv("fcf") or 0.0
+        fcf_margin = (fcf / rev * 100.0) if rev > 0 else 0.0
+        lines.append(f"FCF margin {fcf_margin:.1f}% of revenue — normalised so large-cap doesn't dominate (±10 pts).")
+        lines.append(f"Debt/EBITDA {gv('debt_to_ebitda') or 0:.2f}× — leverage penalty (±8 pts, sector-adjusted).")
     elif lens_key == "ackman":
-        lines.append(f"Operating margin {gv('operating_margin') or 0:.2f}% — scaled by +0.6× in the Ackman stack.")
-        lines.append(f"Interest coverage {gv('interest_coverage') or 0:.2f}× — scaled by +2.0× (balance-sheet serviceability).")
-        lines.append(f"ROIC {gv('roic') or 0:.2f}% — adds +0.5×.")
+        lines.append(f"Operating margin {gv('operating_margin') or 0:.1f}% — core profitability (±14 pts, sector-adjusted).")
+        lines.append(f"Interest coverage {gv('interest_coverage') or 0:.1f}× — financial safety buffer (±10 pts).")
+        lines.append(f"ROIC {gv('roic') or 0:.1f}% — capital efficiency (±8 pts).")
+        lines.append("Operating margin 3-year trend also modifies score (±5 pts).")
     elif lens_key == "wood":
-        lines.append(f"Revenue growth (YoY proxy) {revenue_growth:.2f}% — +1.0× weight in the Wood formula.")
-        lines.append(f"Gross margin {gv('gross_margin') or 0:.2f}% — +0.4×.")
-        lines.append(f"P/E {gv('valuation_pe') or 0:.2f} — subtracts 0.15× each point (valuation guardrail).")
+        lines.append(f"Revenue growth {revenue_growth:.1f}% YoY — primary signal (±20 pts; good=25%, ok=5%).")
+        lines.append(f"Gross margin {gv('gross_margin') or 0:.1f}% — scalability of growth (±10 pts).")
+        lines.append("FCF CAGR (3Y) — secondary growth-to-cash conversion signal (±8 pts).")
+        lines.append("No P/E penalty — Wood accepts elevated valuations for disruptive growth.")
     elif lens_key == "burry":
-        lines.append(f"Current ratio {gv('current_ratio') or 0:.2f} — +8× in engine (liquidity emphasis).")
-        lines.append(f"Interest coverage {gv('interest_coverage') or 0:.2f}× — +1.2×.")
-        lines.append(f"Debt/EBITDA {gv('debt_to_ebitda') or 0:.2f} — −5× (leverage penalty).")
-        lines.append(f"P/E {gv('valuation_pe') or 0:.2f} — −0.2× (headline multiple discipline).")
+        lines.append(f"Current ratio {gv('current_ratio') or 0:.2f} — liquidity buffer (±12 pts; good=2.5, bad=0.8).")
+        lines.append(f"Debt/EBITDA {gv('debt_to_ebitda') or 0:.2f}× — leverage (±12 pts, sector-adjusted thresholds).")
+        lines.append(f"Interest coverage {gv('interest_coverage') or 0:.1f}× — debt serviceability (±8 pts).")
+        pe = gv("valuation_pe")
+        if pe and pe > 0:
+            lines.append(f"P/E {pe:.1f}× — valuation discipline (±8 pts; good=12×, bad=30×).")
+        lines.append("Deleveraging trend (3Y) adds up to ±4 pts.")
     elif lens_key == "pelosi_proxy":
-        lines.append("No live drivers: score is pinned to illustrate a future disclosure-feed channel.")
+        lines.append("Lens retired. Score = 0. Weight redistributed to Buffett (+3%) and Burry (+2%).")
     elif lens_key == "institutional":
-        mcap = _f(raw_metrics.get("market_cap_bn"))
-        liq = _f(raw_metrics.get("liquidity_score"))
-        lines.append(f"Market cap proxy {mcap or 0:.1f}B — +0.2× in the institutional stack.")
-        lines.append(f"Liquidity score {liq or 0:.1f} — +0.25× (tradability heuristic).")
-        lines.append(f"ROE {gv('roe') or 0:.2f}% — +0.4×.")
+        lines.append(f"ROE {gv('roe') or 0:.1f}% — primary return signal (±14 pts, sector-adjusted).")
+        lines.append(f"Revenue ${rev_bn:.1f}B — scale proxy replacing hardcoded market cap (±8 pts; good=$50B+).")
+        lines.append(f"Net margin {gv('net_margin') or 0:.1f}% — earnings quality (±8 pts).")
+        lines.append("ROE 3-year trend adds up to ±4 pts.")
 
     return lines
 

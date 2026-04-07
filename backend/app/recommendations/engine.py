@@ -77,6 +77,28 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
     latest = metric_rows[0]
     prior = metric_rows[1] if len(metric_rows) > 1 else None
 
+    # Build trend_rows first so compute_financial_ratios can derive 3-year signals.
+    trend_rows = []
+    for row in metric_rows:
+        trend_rows.append(
+            {
+                "fiscal_year": row.fiscal_year,
+                "revenue": row.revenue,
+                "gross_margin": row.gross_margin,
+                "operating_margin": row.operating_margin,
+                "net_margin": row.net_margin,
+                "fcf": row.fcf,
+                "roic": row.roic,
+                "roe": row.roe,
+                "current_ratio": row.current_ratio,
+                "debt_to_ebitda": row.debt_to_ebitda,
+                "interest_coverage": row.interest_coverage,
+                "valuation_pe": row.valuation_pe,
+            }
+        )
+
+    sector = getattr(company, "sector", None)
+
     raw_metrics = {
         "revenue": latest.revenue,
         "gross_margin": latest.gross_margin,
@@ -90,12 +112,10 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
         "current_ratio": latest.current_ratio,
         "valuation_pe": latest.valuation_pe,
         "valuation_ev_ebitda": latest.valuation_ev_ebitda,
-        "market_cap_bn": 250.0,
-        "liquidity_score": 70.0,
     }
     prior_metrics = {"revenue": prior.revenue} if prior else None
-    metrics = compute_financial_ratios(raw_metrics, prior_metrics=prior_metrics)
-    score_card = score_all(metrics)
+    metrics = compute_financial_ratios(raw_metrics, prior_metrics=prior_metrics, trend_rows=trend_rows)
+    score_card = score_all(metrics, sector=sector)
     filings = (
         db.query(Filing)
         .filter(Filing.company_id == company.id, Filing.filing_type == "10-K")
@@ -136,26 +156,58 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
         for key in keyword_counts:
             keyword_counts[key] += text.count(key)
 
+    # Sector-relative checklist thresholds
+    _sk = (sector or "").lower()
+    _is_tech = any(k in _sk for k in ("tech", "software", "semiconductor", "internet", "cloud"))
+    _is_fin  = any(k in _sk for k in ("bank", "financ", "insur", "credit"))
+    _is_energy = any(k in _sk for k in ("energy", "oil", "gas", "mining"))
+
+    _roic_bar   = 15.0 if _is_tech else (8.0 if _is_energy else 12.0)
+    _gm_bar     = 50.0 if _is_tech else (30.0 if _is_fin else 35.0)
+    _om_bar     = 20.0 if _is_tech else (10.0 if _is_energy else 15.0)
+    _de_bar     = 2.0  if _is_tech else (4.0  if _is_fin   else 2.5)
+    _roe_bar    = 18.0 if _is_tech else (10.0 if _is_energy else 12.0)
+    _rev_bn_bar = (latest.revenue or 0) / 1e9  # use actual revenue as the scale check
+
+    fcf_margin = (
+        (latest.fcf / latest.revenue * 100.0)
+        if (latest.fcf is not None and latest.revenue and latest.revenue > 0)
+        else None
+    )
+    om_trend = metrics.get("operating_margin_trend")
+    fcf_cagr = metrics.get("fcf_cagr_pct")
+
     persona_reasoning = [
         (
             f"Buffett lens ({score_card['buffett_score']:.1f}): "
-            f"gross margin {latest.gross_margin or 0:.2f}%, FCF {((latest.fcf or 0)/1_000_000_000):.2f}B."
+            f"ROIC {latest.roic or 0:.1f}% (bar {_roic_bar:.0f}%), "
+            f"gross margin {latest.gross_margin or 0:.1f}%, "
+            f"FCF margin {fcf_margin:.1f}% of revenue." if fcf_margin is not None
+            else f"Buffett lens ({score_card['buffett_score']:.1f}): "
+            f"ROIC {latest.roic or 0:.1f}%, gross margin {latest.gross_margin or 0:.1f}%."
         ),
         (
             f"Ackman lens ({score_card['ackman_score']:.1f}): "
-            f"operating margin {latest.operating_margin or 0:.2f}% with quality bias."
+            f"operating margin {latest.operating_margin or 0:.1f}% "
+            f"({'expanding' if om_trend and om_trend > 0 else 'contracting' if om_trend and om_trend < 0 else 'stable'} "
+            f"over 3 years), interest coverage {latest.interest_coverage or 0:.1f}×."
         ),
         (
             f"Wood lens ({score_card['wood_score']:.1f}): "
-            f"revenue growth trend {revenue_growth:.2f}% as innovation/growth proxy."
+            f"revenue growth {revenue_growth:.1f}% YoY, "
+            f"FCF CAGR {fcf_cagr:.1f}% over 3 years." if fcf_cagr is not None
+            else f"Wood lens ({score_card['wood_score']:.1f}): revenue growth {revenue_growth:.1f}% YoY."
         ),
         (
             f"Burry lens ({score_card['burry_score']:.1f}): "
-            f"current ratio {latest.current_ratio or 0:.2f}, debt to EBITDA {latest.debt_to_ebitda or 0:.2f}."
+            f"current ratio {latest.current_ratio or 0:.2f}, "
+            f"debt/EBITDA {latest.debt_to_ebitda or 0:.2f}× "
+            f"(sector bar ≤{_de_bar:.1f}×)."
         ),
         (
             f"Institutional lens ({score_card['institutional_score']:.1f}): "
-            "liquidity and scale assumptions support portfolio inclusion."
+            f"ROE {latest.roe or 0:.1f}% (bar {_roe_bar:.0f}%), "
+            f"revenue ${_rev_bn_bar:.1f}B, net margin {latest.net_margin or 0:.1f}%."
         ),
     ]
 
@@ -167,29 +219,30 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
 
     persona_checklist = {
         "buffett": [
-            check("ROIC proxy", latest.roic, 12.0, ">="),
-            check("Gross margin (%)", latest.gross_margin, 35.0, ">="),
+            check("ROIC (%)", latest.roic, _roic_bar, ">="),
+            check("Gross margin (%)", latest.gross_margin, _gm_bar, ">="),
             check("Positive FCF", latest.fcf, 0.0, ">="),
-            check("Debt/EBITDA", latest.debt_to_ebitda, 2.5, "<="),
+            check("Debt/EBITDA", latest.debt_to_ebitda, _de_bar, "<="),
         ],
         "ackman": [
-            check("Operating margin (%)", latest.operating_margin, 15.0, ">="),
-            check("ROIC proxy", latest.roic, 12.0, ">="),
+            check("Operating margin (%)", latest.operating_margin, _om_bar, ">="),
+            check("ROIC (%)", latest.roic, _roic_bar, ">="),
             check("Interest coverage", latest.interest_coverage, 5.0, ">="),
         ],
         "wood": [
             check("Revenue growth (%)", revenue_growth, 8.0, ">="),
             check("Gross margin (%)", latest.gross_margin, 40.0, ">="),
+            check("FCF CAGR (%)", metrics.get("fcf_cagr_pct"), 10.0, ">="),
         ],
         "burry": [
             check("Current ratio", latest.current_ratio, 1.2, ">="),
-            check("Debt/EBITDA", latest.debt_to_ebitda, 3.0, "<="),
-            check("P/E", latest.valuation_pe, 22.0, "<="),
+            check("Debt/EBITDA", latest.debt_to_ebitda, _de_bar, "<="),
+            check("P/E", latest.valuation_pe, 25.0, "<="),
         ],
         "institutional": [
-            check("ROE (%)", latest.roe, 12.0, ">="),
-            check("Liquidity score", raw_metrics.get("liquidity_score"), 60.0, ">="),
-            check("Market cap (bn)", raw_metrics.get("market_cap_bn"), 50.0, ">="),
+            check("ROE (%)", latest.roe, _roe_bar, ">="),
+            check("Revenue scale ($B)", _rev_bn_bar, 10.0, ">="),
+            check("Net margin (%)", latest.net_margin, 8.0, ">="),
         ],
     }
 
@@ -198,7 +251,7 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
         "ackman": score_card["ackman_score"] * WEIGHTS["ackman"],
         "wood": score_card["wood_score"] * WEIGHTS["wood"],
         "burry": score_card["burry_score"] * WEIGHTS["burry"],
-        "pelosi_proxy": score_card["pelosi_proxy_score"] * WEIGHTS["pelosi_proxy"],
+        "pelosi_proxy": 0.0,
         "institutional": score_card["institutional_score"] * WEIGHTS["institutional"],
     }
 
@@ -207,8 +260,8 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
         "ackman_score": "concentrated quality (Ackman-style)",
         "wood_score": "growth & innovation (Wood-style)",
         "burry_score": "value / balance sheet (Burry-style)",
-        "pelosi_proxy_score": "disclosure-style signal (weak)",
-        "institutional_score": "scale & liquidity (index-style)",
+        "pelosi_proxy_score": "n/a",
+        "institutional_score": "scale & earnings quality (institutional)",
     }
     score_keys = [k for k in score_card if k.endswith("_score") and k != "final_score"]
     top_key = max(score_keys, key=lambda k: score_card[k]) if score_keys else "buffett_score"
@@ -225,25 +278,6 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
         final_score=score_card["final_score"],
         top_persona=top_persona_label,
     )
-
-    trend_rows = []
-    for row in metric_rows:
-        trend_rows.append(
-            {
-                "fiscal_year": row.fiscal_year,
-                "revenue": row.revenue,
-                "gross_margin": row.gross_margin,
-                "operating_margin": row.operating_margin,
-                "net_margin": row.net_margin,
-                "fcf": row.fcf,
-                "roic": row.roic,
-                "roe": row.roe,
-                "current_ratio": row.current_ratio,
-                "debt_to_ebitda": row.debt_to_ebitda,
-                "interest_coverage": row.interest_coverage,
-                "valuation_pe": row.valuation_pe,
-            }
-        )
 
     persona_lens_elaboration = build_persona_lens_elaboration(
         score_card=score_card,
@@ -283,11 +317,13 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
         ),
         thesis_json={
             "why_now": [
-                f"Revenue growth trend: {revenue_growth:.2f}%.",
-                f"Operating margin: {latest.operating_margin or 0:.2f}%.",
-                f"ROE proxy: {latest.roe or 0:.2f}%.",
+                f"Revenue growth: {revenue_growth:.1f}% YoY"
+                + (f", FCF CAGR {metrics['fcf_cagr_pct']:.1f}% (3Y)" if metrics.get("fcf_cagr_pct") is not None else "") + ".",
+                f"Operating margin: {latest.operating_margin or 0:.1f}%"
+                + (f" ({'expanding' if (metrics.get('operating_margin_trend') or 0) > 0 else 'contracting'} trend)" if metrics.get("operating_margin_trend") is not None else "") + ".",
+                f"ROE: {latest.roe or 0:.1f}%, ROIC: {latest.roic or 0:.1f}% (sector bar {_roic_bar:.0f}%).",
                 f"Analyzed 10-K fiscal years: {filing_years if filing_years else 'unavailable'}",
-                "Fits multi-persona style blend.",
+                "Fits multi-persona style blend with sector-relative thresholds.",
             ],
             "filing_scope": "Last 3 annual 10-K filings via SEC or IR.",
             "key_financials": {
@@ -301,6 +337,9 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
                 "current_ratio": latest.current_ratio,
                 "debt_to_ebitda": latest.debt_to_ebitda,
                 "revenue_growth_pct": revenue_growth,
+                "fcf_cagr_pct": metrics.get("fcf_cagr_pct"),
+                "operating_margin_trend": metrics.get("operating_margin_trend"),
+                "roe_trend": metrics.get("roe_trend"),
             },
             "persona_reasoning": persona_reasoning,
             "persona_lens_elaboration": persona_lens_elaboration,
