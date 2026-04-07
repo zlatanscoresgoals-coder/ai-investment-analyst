@@ -141,9 +141,17 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
     if out["cfo"] is not None and capex_raw is not None:
         out["fcf"] = float(out["cfo"]) - abs(float(capex_raw))
 
-    out["ebitda"] = waterfall_money(us_gaap, EBITDA_DIRECT_TAGS, fy)
     out["operating_income"] = waterfall_money(us_gaap, OPERATING_INCOME_TAGS, fy)
     out["depreciation"] = waterfall_money(us_gaap, DEPRECIATION_TAGS, fy)
+    ebitda_direct = waterfall_money(us_gaap, EBITDA_DIRECT_TAGS, fy)
+    if ebitda_direct is not None:
+        out["ebitda"] = ebitda_direct
+    elif out["operating_income"] is not None and out["depreciation"] is not None:
+        out["ebitda"] = float(out["operating_income"]) + abs(float(out["depreciation"]))
+    elif out["operating_income"] is not None:
+        out["ebitda"] = float(out["operating_income"])
+    else:
+        out["ebitda"] = None
 
     sh = shares_outstanding_for_fy(us_gaap, fy)
     out["shares_outstanding"] = sh
@@ -189,6 +197,12 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
 
 
 def net_debt_from_inputs(v: dict[str, Any]) -> float:
+    """
+    Net debt = total financial debt − cash & equivalents.
+    Returns a signed float: positive = net debt, negative = net cash.
+    Net cash companies (e.g. Apple, Google) will have a negative value here,
+    which correctly *adds* to equity value in the DCF bridge.
+    """
     td = v.get("total_debt")
     if td is not None:
         debt = float(td)
@@ -202,7 +216,7 @@ def net_debt_from_inputs(v: dict[str, Any]) -> float:
         else:
             debt = lt + st + cp
     cash = float(v.get("cash") or 0)
-    return max(0.0, debt - cash)
+    return debt - cash
 
 
 def book_value_per_share(v: dict[str, Any]) -> Optional[float]:

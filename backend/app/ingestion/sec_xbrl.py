@@ -76,6 +76,13 @@ EPS_BASIC_TAGS = (
     "IncomeLossFromContinuingOperationsPerBasicShare",
 )
 
+SHARES_DILUTED_TAGS = (
+    "WeightedAverageNumberOfDilutedSharesOutstanding",
+    "WeightedAverageNumberOfSharesOutstandingDiluted",
+    "CommonStockSharesOutstanding",
+    "CommonStockSharesIssued",
+)
+
 INTEREST_EXPENSE_TAGS = (
     "InterestExpense",
     "InterestExpenseDebt",
@@ -235,6 +242,11 @@ def _read_shares_for_fy(us_gaap: dict[str, Any], tag: str, fy: int) -> Optional[
 
 
 def shares_outstanding_for_fy(us_gaap: dict[str, Any], fy: int) -> Optional[float]:
+    # Prefer weighted-average diluted (matches EPS denominator); fall back to period-end outstanding.
+    for tag in SHARES_DILUTED_TAGS[:2]:
+        v = _read_shares_for_fy(us_gaap, tag, fy)
+        if v is not None:
+            return v
     v = _read_shares_for_fy(us_gaap, "CommonStockSharesOutstanding", fy)
     if v is not None:
         return v

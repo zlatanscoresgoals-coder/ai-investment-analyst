@@ -73,6 +73,7 @@ def dcf_equity_value(
     fcf_6 = fcf * (1.0 + gt)
     tv = fcf_6 / (w - gt)
     pv += tv / (1.0 + w) ** 5
+    # net_debt is signed: positive = net debt (subtract), negative = net cash (add).
     equity = max(0.0, pv - float(net_debt or 0))
     return equity, equity / float(shares)
 
@@ -182,6 +183,19 @@ def ggm_inputs_from_sec(
             }
         )
 
+    # Estimate historical distribution growth rate from the 3-year window.
+    dist_growth_default = _estimate_dist_growth(dist_hist)
+
+    # Estimate beta from operating leverage / sector heuristic using interest coverage.
+    # Damodaran-style: unlevered beta ~1.0 for broad market; re-lever with D/E.
+    beta_default = _estimate_beta(debt, e_mkt, e_book_f)
+
+    # Market-calibrated WACC building blocks (US market, April 2026).
+    # 10-year UST ~4.3%, Damodaran ERP ~5.5%, terminal growth = long-run nominal GDP ~2.5%.
+    RISK_FREE_DEFAULT = 4.3
+    ERP_DEFAULT = 5.5
+    TERMINAL_GROWTH_DEFAULT = 2.5
+
     return {
         "net_income": float(ni) if ni is not None else None,
         "dividends_paid": float(div_v) if div_v is not None else None,
@@ -189,13 +203,13 @@ def ggm_inputs_from_sec(
         "distributions_actual": dist_act,
         "dividend_payout_pct_default": div_pct,
         "buyback_rate_pct_default": bb_pct,
-        "distribution_growth_pct_default": None,
-        "terminal_growth_pct_default": None,
-        "risk_free_pct_default": None,
-        "beta_default": None,
-        "erp_pct_default": None,
+        "distribution_growth_pct_default": dist_growth_default,
+        "terminal_growth_pct_default": TERMINAL_GROWTH_DEFAULT,
+        "risk_free_pct_default": RISK_FREE_DEFAULT,
+        "beta_default": beta_default,
+        "erp_pct_default": ERP_DEFAULT,
         "interest_rate_pct_default": int_rate_pct,
-        "tax_rate_pct_default": tax_rate,
+        "tax_rate_pct_default": tax_rate if tax_rate is not None else 21.0,
         "debt_book": debt,
         "cash": cash,
         "equity_market": e_mkt,
@@ -207,6 +221,59 @@ def ggm_inputs_from_sec(
     }
 
 
+def _estimate_dist_growth(dist_hist: list[dict[str, Any]]) -> float:
+    """
+    Compute CAGR of total distributions (div + buybacks) over the available 3-year history.
+    Falls back to 5% if insufficient data.
+    """
+    vals = []
+    for row in dist_hist:
+        d = row.get("distributions")
+        if d is not None and float(d) > 0:
+            vals.append(float(d))
+    if len(vals) >= 2:
+        n = len(vals) - 1
+        cagr = (vals[-1] / vals[0]) ** (1.0 / n) - 1.0
+        # Cap between 0% and 25% — extreme values are noise
+        return round(max(0.0, min(25.0, cagr * 100.0)), 2)
+    return 5.0
+
+
+def _estimate_beta(debt: float, equity_market: Optional[float], equity_book: Optional[float]) -> float:
+    """
+    Rough levered beta estimate using Hamada equation.
+    Assumes unlevered beta of 1.0 (broad market) and re-levers with D/E ratio.
+    Returns a value in [0.5, 2.0].
+    """
+    e = equity_market if equity_market and equity_market > 0 else equity_book
+    if e is None or e <= 0 or debt <= 0:
+        return 1.0
+    de_ratio = debt / e
+    # Hamada: β_L = β_U × (1 + (1 − t) × D/E), assume t=21%, β_U=1.0
+    levered = 1.0 * (1.0 + 0.79 * de_ratio)
+    return round(max(0.5, min(2.0, levered)), 2)
+
+
+def _historical_fcf_growth_pct(historical_window: list[dict]) -> Optional[float]:
+    """
+    CAGR of FCF over the available 3-year 10-K history.
+    Returns None if fewer than 2 positive FCF observations.
+    Capped at [0%, 40%] to avoid noise from near-zero base years.
+    """
+    vals = []
+    for row in (historical_window or []):
+        if not isinstance(row, dict):
+            continue
+        f = row.get("fcf")
+        if f is not None and float(f) > 0:
+            vals.append(float(f))
+    if len(vals) < 2:
+        return None
+    n = len(vals) - 1
+    cagr = (vals[-1] / vals[0]) ** (1.0 / n) - 1.0
+    return round(max(0.0, min(40.0, cagr * 100.0)), 2)
+
+
 def build_valuation_bundle(
     *,
     ticker: str,
@@ -215,10 +282,10 @@ def build_valuation_bundle(
     industry: Optional[str],
     sec_inputs: dict[str, Any],
     current_price: Optional[float],
-    dcf_g1: float = 10.0,
+    dcf_g1: Optional[float] = None,
     dcf_g2: float = 5.0,
     dcf_g_term: float = 2.5,
-    dcf_wacc: float = 9.0,
+    dcf_wacc: Optional[float] = None,
 ) -> dict[str, Any]:
     """Assemble JSON for API + dashboard (defaults match slider defaults)."""
     fy = sec_inputs.get("fiscal_year")
@@ -226,6 +293,14 @@ def build_valuation_bundle(
     shares = sec_inputs.get("shares_outstanding")
     if shares is None:
         shares = sec_inputs.get("shares_diluted")
+
+    # Anchor DCF g1 on historical FCF CAGR; fall back to 10% if insufficient data.
+    if dcf_g1 is None:
+        hist_g = _historical_fcf_growth_pct(sec_inputs.get("historical_window") or [])
+        dcf_g1 = hist_g if hist_g is not None else 10.0
+    # g2 (years 4-5) defaults to half of g1, capped at 15%.
+    if dcf_g2 == 5.0 and dcf_g1 != 10.0:
+        dcf_g2 = round(max(2.0, min(15.0, dcf_g1 / 2.0)), 2)
     eps = sec_inputs.get("eps_basic")
     if eps is None:
         eps = sec_inputs.get("eps_diluted")
@@ -238,6 +313,24 @@ def build_valuation_bundle(
     anchor, anchor_key = sector_ev_ebitda_multiple(sector, industry)
 
     price = float(current_price) if current_price is not None and current_price > 0 else None
+
+    # Compute WACC from CAPM building blocks when not explicitly supplied.
+    # Uses: rf=4.3% (10Y UST), ERP=5.5% (Damodaran), beta from Hamada re-levering.
+    if dcf_wacc is None:
+        _td = float(sec_inputs.get("total_debt") or 0)
+        _e_mkt = (float(shares) * price) if (shares and price) else None
+        _e_book = sec_inputs.get("stockholders_equity")
+        _beta = _estimate_beta(_td, _e_mkt, float(_e_book) if _e_book else None)
+        _re = 4.3 + _beta * 5.5  # CAPM cost of equity
+        _int = sec_inputs.get("interest_expense")
+        _tax = sec_inputs.get("effective_tax_rate_pct") or 21.0
+        _rd_pretax = (abs(float(_int)) / _td * 100.0) if (_td > 0 and _int) else 5.5
+        _rd = min(15.0, max(1.0, _rd_pretax)) * (1 - _tax / 100.0)
+        _e_val = _e_mkt if _e_mkt else (float(_e_book) if _e_book else 0.0)
+        _v = _e_val + _td
+        _we = _e_val / _v if _v > 0 else 1.0
+        _wd = _td / _v if _v > 0 else 0.0
+        dcf_wacc = round(max(7.0, min(15.0, _we * _re + _wd * _rd)), 2)
 
     dcf_iv = None
     ev_equity = None

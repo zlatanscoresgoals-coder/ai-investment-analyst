@@ -1484,7 +1484,8 @@ function buildValuationSpreadsheetHtml(card) {
   assumptions.push(["Current price (quote)", fmtUsdVal(V.current_price)]);
   assumptions.push(["Latest FY (anchor)", V.fiscal_year != null ? "FY" + String(V.fiscal_year) : "—"]);
   assumptions.push(["Shares outstanding (10-K FY)", compactMoneyVal(V.shares)]);
-  assumptions.push(["Net debt (model)", compactMoneyVal(V.net_debt)]);
+  const ndVal = Number(V.net_debt);
+  assumptions.push([(Number.isFinite(ndVal) && ndVal < 0 ? "Net cash (model)" : "Net debt (model)"), compactMoneyVal(V.net_debt)]);
   assumptions.push(["Latest FY FCF (DCF anchor)", compactMoneyVal(V.fcf)]);
   if (Number.isFinite(g1)) {
     assumptions.push(["DCF — FCF growth Y1–Y3", g1.toFixed(2) + "%"]);
@@ -1556,8 +1557,9 @@ function buildValuationSpreadsheetHtml(card) {
       "<td><strong>" +
       esc(compactMoneyVal(dcf.pvFirm)) +
       "</strong></td></tr>";
+    const netDebtLabel = dcf.netDebt < 0 ? "Plus: net cash (−net debt)" : "Less: net debt";
     dcfBody +=
-      "<tr><td>Less: net debt</td>" +
+      "<tr><td>" + netDebtLabel + "</td>" +
       sheetRepeatTd("—", 8) +
       "<td>" +
       esc(compactMoneyVal(dcf.netDebt)) +
