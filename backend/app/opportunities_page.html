@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MERIDIAN | Market Opportunities</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-page: #07090D;
+      --bg-card: #0C1118;
+      --border-card: rgba(255,255,255,0.1);
+      --border-hover: rgba(255,255,255,0.18);
+      --gold: #C9A84C;
+      --green: #2ECC71;
+      --red: #E74C3C;
+      --amber: #E67E22;
+      --blue: #3B82F6;
+      --text: #F2EDE4;
+      --text-secondary: #B4BBC8;
+      --text-muted: #8E97A8;
+      --body-dim: #D8D2C8;
+      --line-subtle: rgba(255,255,255,0.16);
+      --header-bg: rgba(7,9,13,0.97);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0; min-height: 100vh;
+      background: var(--bg-page); color: var(--text);
+      font-family: "DM Sans", system-ui, sans-serif;
+      font-size: 15px; padding-top: 120px; padding-bottom: 48px;
+    }
+    .font-display { font-family: "Playfair Display", Georgia, serif; }
+    .font-mono { font-family: "Space Mono", ui-monospace, monospace; }
+    * { scrollbar-width: thin; scrollbar-color: var(--gold) #0a0e14; }
+    *::-webkit-scrollbar { width: 4px; height: 4px; }
+    *::-webkit-scrollbar-track { background: #0a0e14; }
+    *::-webkit-scrollbar-thumb { background: var(--gold); border-radius: 2px; }
+
+    .site-header {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 20px; padding: 16px 28px 14px;
+      background: var(--header-bg); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-card);
+    }
+    .brand-block { display: flex; flex-direction: column; gap: 2px; }
+    .brand-name {
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 22px; font-weight: 600; letter-spacing: 0.25em;
+      color: var(--gold); margin: 0; line-height: 1.1;
+    }
+    .brand-sub { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-muted); }
+    .header-actions { display: flex; gap: 10px; align-items: center; }
+    .btn { cursor: pointer; border: none; border-radius: 6px; font-family: inherit; font-size: 13px; padding: 8px 18px; transition: all 0.18s; }
+    .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-card); }
+    .btn-ghost:hover { border-color: var(--gold); color: var(--gold); }
+    .btn-gold { background: var(--gold); color: #0C1118; font-weight: 600; }
+    .btn-gold:hover { filter: brightness(1.1); }
+    .btn-gold:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+    /* Section cards */
+    .section-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px; }
+    @media (max-width: 900px) { .section-cards { grid-template-columns: 1fr; } }
+    .section-card {
+      background: var(--bg-card); border: 1px solid var(--border-card);
+      border-radius: 12px; padding: 20px 22px; cursor: pointer;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .section-card:hover, .section-card.active {
+      border-color: var(--gold); box-shadow: 0 0 24px rgba(201,168,76,0.08);
+    }
+    .section-card h3 { margin: 0 0 6px; font-size: 16px; color: var(--gold); font-weight: 600; }
+    .section-card p { margin: 0 0 14px; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+    .scan-btn { width: 100%; }
+
+    /* Content panels */
+    .panel { display: none; }
+    .panel.visible { display: block; }
+    .panel-title { font-family: "Playfair Display", Georgia, serif; font-size: 20px; color: var(--gold); margin: 0 0 8px; }
+    .evidence-note {
+      font-size: 12px; color: var(--text-muted); line-height: 1.6;
+      border-left: 3px solid var(--gold); padding: 10px 14px;
+      background: rgba(201,168,76,0.04); border-radius: 0 6px 6px 0; margin-bottom: 20px;
+    }
+    .loading { text-align: center; padding: 40px; color: var(--text-muted); font-size: 14px; }
+    .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border-card); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 8px; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Momentum cards */
+    .momentum-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+    .mo-card {
+      background: var(--bg-card); border: 1px solid var(--border-card);
+      border-radius: 12px; padding: 18px 20px; position: relative;
+    }
+    .mo-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+    .mo-ticker { font-size: 18px; font-weight: 700; color: var(--text); }
+    .mo-name { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .mo-sector { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; }
+    .mo-score {
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 32px; font-weight: 700; color: var(--gold); line-height: 1;
+    }
+    .mo-metrics { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 10px 0; }
+    .mo-metric { font-size: 11px; }
+    .mo-metric-label { color: var(--text-muted); display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .mo-metric-val { font-family: "Space Mono", monospace; font-size: 13px; }
+    .mo-positive { color: var(--green); }
+    .mo-negative { color: var(--red); }
+    .mo-rsi { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .rsi-healthy { background: rgba(46,204,113,0.15); color: var(--green); }
+    .rsi-overbought { background: rgba(231,76,60,0.15); color: var(--red); }
+    .rsi-neutral { background: rgba(184,187,200,0.1); color: var(--text-muted); }
+    .sparkline-container { height: 48px; margin: 10px 0 12px; }
+    .sparkline-container canvas { width: 100%; height: 100%; }
+    .mo-actions { display: flex; gap: 8px; }
+    .mo-actions .btn { font-size: 11px; padding: 6px 12px; flex: 1; text-align: center; }
+
+    /* Earnings radar */
+    .er-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .er-table th { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border-card); color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; }
+    .er-table td { padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: top; }
+    .er-flag { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+    .er-flag-green { background: rgba(46,204,113,0.15); color: var(--green); }
+    .er-flag-amber { background: rgba(230,126,34,0.15); color: var(--amber); }
+    .er-flag-red { background: rgba(231,76,60,0.15); color: var(--red); }
+    .er-surprise-row { display: flex; gap: 4px; margin-top: 4px; }
+    .er-surprise-dot { width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }
+    .er-dot-beat { background: rgba(46,204,113,0.2); color: var(--green); }
+    .er-dot-miss { background: rgba(231,76,60,0.2); color: var(--red); }
+    .er-setup-box {
+      margin-top: 8px; padding: 10px 12px;
+      background: rgba(46,204,113,0.04); border: 1px solid rgba(46,204,113,0.15);
+      border-radius: 8px; font-size: 11px; color: var(--text-secondary); line-height: 1.6;
+    }
+    .er-setup-title { font-weight: 600; color: var(--green); font-size: 12px; margin-bottom: 4px; }
+    .er-empty { text-align: center; padding: 40px; color: var(--text-muted); }
+
+    /* Market regime */
+    .regime-hero {
+      text-align: center; padding: 32px 24px; margin-bottom: 20px;
+      border-radius: 12px; border: 1px solid var(--border-card);
+    }
+    .regime-hero.bull { background: rgba(46,204,113,0.06); border-color: rgba(46,204,113,0.2); }
+    .regime-hero.bear { background: rgba(231,76,60,0.06); border-color: rgba(231,76,60,0.2); }
+    .regime-hero.transition { background: rgba(230,126,34,0.06); border-color: rgba(230,126,34,0.2); }
+    .regime-label {
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 24px; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 6px;
+    }
+    .regime-bull .regime-label { color: var(--green); }
+    .regime-bear .regime-label { color: var(--red); }
+    .regime-transition .regime-label { color: var(--amber); }
+    .regime-sub { font-size: 13px; color: var(--text-secondary); }
+
+    .signal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin: 20px 0; }
+    .signal-card {
+      background: var(--bg-card); border: 1px solid var(--border-card);
+      border-radius: 10px; padding: 14px 16px;
+    }
+    .signal-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 6px; }
+    .signal-value { font-family: "Space Mono", monospace; font-size: 16px; font-weight: 600; }
+    .signal-note { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+    .recommendation-box {
+      background: var(--bg-card); border: 1px solid var(--gold);
+      border-radius: 12px; padding: 18px 22px; margin: 20px 0;
+    }
+    .recommendation-box h4 { margin: 0 0 8px; color: var(--gold); font-size: 14px; }
+    .recommendation-box p { margin: 4px 0; font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+    .recommendation-box strong { color: var(--text); }
+
+    /* Sector rotation table */
+    .sector-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 16px; }
+    .sector-table th { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border-card); color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .sector-table td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); font-family: "Space Mono", monospace; font-size: 12px; }
+    .sector-bar { height: 6px; border-radius: 3px; min-width: 2px; display: inline-block; vertical-align: middle; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand-block">
+      <h1 class="brand-name">MERIDIAN</h1>
+      <div class="brand-sub">Market Opportunities</div>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="btn btn-ghost" onclick="window.location='/dashboard'">Dashboard</button>
+      <button type="button" class="btn btn-ghost" onclick="window.location='/logout'">Logout</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="section-cards">
+      <div class="section-card active" data-panel="momentum" onclick="showPanel('momentum')">
+        <h3>Momentum Screener</h3>
+        <p>Jegadeesh &amp; Titman (1993) momentum factor. Stocks ranked by 6-12 month price performance with volume confirmation and trend continuation filters.</p>
+        <button class="btn btn-gold scan-btn" onclick="event.stopPropagation(); scanMomentum()">Scan Now</button>
+      </div>
+      <div class="section-card" data-panel="earnings" onclick="showPanel('earnings')">
+        <h3>Earnings Radar</h3>
+        <p>Post-Earnings Announcement Drift (Bernard &amp; Thomas, 1989). Upcoming earnings flagged by historical beat/miss patterns and MERIDIAN scores.</p>
+        <button class="btn btn-gold scan-btn" onclick="event.stopPropagation(); scanEarnings()">Scan Now</button>
+      </div>
+      <div class="section-card" data-panel="regime" onclick="showPanel('regime')">
+        <h3>Market Regime</h3>
+        <p>Factor regime detection — Fama-French / AQR research. Identifies whether conditions favor momentum, value, or quality strategies.</p>
+        <button class="btn btn-gold scan-btn" onclick="event.stopPropagation(); scanRegime()">Scan Now</button>
+      </div>
+    </div>
+
+    <!-- Momentum Panel -->
+    <div class="panel visible" id="panel-momentum">
+      <h2 class="panel-title">Momentum Screener</h2>
+      <div class="evidence-note">
+        Based on momentum factor research (Jegadeesh &amp; Titman, 1993). Stocks ranked by 6-12 month price performance, filtered for healthy trend continuation signals. Stocks with negative 1-month returns are excluded (momentum crash filter).
+      </div>
+      <div id="momentum-content"><p class="loading">Click <strong>Scan Now</strong> to screen the 50-stock large-cap universe.</p></div>
+    </div>
+
+    <!-- Earnings Panel -->
+    <div class="panel" id="panel-earnings">
+      <h2 class="panel-title">Earnings Radar</h2>
+      <div class="evidence-note">
+        Post-Earnings Announcement Drift (PEAD) — Bernard &amp; Thomas (1989). Stocks that beat earnings estimates tend to drift upward for 4-8 weeks. The effect is strongest for smaller surprises the market initially underreacts to.
+      </div>
+      <div id="earnings-content"><p class="loading">Click <strong>Scan Now</strong> to scan upcoming earnings in the next 14 days.</p></div>
+    </div>
+
+    <!-- Regime Panel -->
+    <div class="panel" id="panel-regime">
+      <h2 class="panel-title">Market Regime Indicator</h2>
+      <div class="evidence-note">
+        Different market conditions favor different strategies. Bull/low volatility = momentum works best. Bear/high volatility = value and defensive work best. Transition periods = quality and profitability factors lead (Fama &amp; French, AQR Capital).
+      </div>
+      <div id="regime-content"><p class="loading">Click <strong>Scan Now</strong> to analyze current market conditions.</p></div>
+    </div>
+  </div>
+
+<script>
+function esc(s) { const d = document.createElement("div"); d.textContent = String(s ?? ""); return d.innerHTML; }
+
+function showPanel(name) {
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("visible"));
+  document.querySelectorAll(".section-card").forEach(c => c.classList.remove("active"));
+  const panel = document.getElementById("panel-" + name);
+  if (panel) panel.classList.add("visible");
+  const card = document.querySelector('.section-card[data-panel="' + name + '"]');
+  if (card) card.classList.add("active");
+}
+
+function drawSparkline(canvas, data) {
+  if (!canvas || !data || data.length < 2) return;
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width = canvas.parentElement.offsetWidth;
+  const h = canvas.height = 48;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  ctx.clearRect(0, 0, w, h);
+  ctx.beginPath();
+  for (let i = 0; i < data.length; i++) {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - ((data[i] - min) / range) * (h - 4) - 2;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  const up = data[data.length - 1] >= data[0];
+  ctx.strokeStyle = up ? "#2ECC71" : "#E74C3C";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+function retClass(val) {
+  if (val == null) return "";
+  return val >= 0 ? "mo-positive" : "mo-negative";
+}
+
+function fmtPct(val) {
+  if (val == null) return "N/A";
+  return (val >= 0 ? "+" : "") + Number(val).toFixed(2) + "%";
+}
+
+function fmtUsd(val) {
+  if (val == null) return "N/A";
+  return "$" + Number(val).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function rsiClass(rsi) {
+  if (rsi == null) return "rsi-neutral";
+  if (rsi >= 50 && rsi <= 70) return "rsi-healthy";
+  if (rsi > 70) return "rsi-overbought";
+  return "rsi-neutral";
+}
+
+/* ---- Momentum ---- */
+async function scanMomentum() {
+  const el = document.getElementById("momentum-content");
+  el.innerHTML = '<p class="loading"><span class="spinner"></span>Scanning 50 stocks for momentum signals… this takes 30-60 seconds.</p>';
+  showPanel("momentum");
+  try {
+    const res = await fetch("/api/opportunities/momentum", { cache: "no-store" });
+    const data = await res.json();
+    if (!data || data.length === 0) {
+      el.innerHTML = '<p class="loading">No momentum candidates found (all stocks may have negative 1-month returns).</p>';
+      return;
+    }
+    let html = '<div class="momentum-grid">';
+    data.forEach((s, idx) => {
+      const rsiCl = rsiClass(s.rsi);
+      html += '<div class="mo-card">' +
+        '<div class="mo-header"><div>' +
+          '<div class="mo-ticker">' + esc(s.ticker) + '</div>' +
+          '<div class="mo-name">' + esc(s.name) + '</div>' +
+          '<div class="mo-sector">' + esc(s.sector) + '</div>' +
+        '</div><div class="mo-score">' + esc(s.momentum_score) + '</div></div>' +
+        '<div class="mo-metrics">' +
+          '<div class="mo-metric"><span class="mo-metric-label">6M Return</span><span class="mo-metric-val ' + retClass(s.ret_6m) + '">' + fmtPct(s.ret_6m) + '</span></div>' +
+          '<div class="mo-metric"><span class="mo-metric-label">12M Return</span><span class="mo-metric-val ' + retClass(s.ret_12m) + '">' + fmtPct(s.ret_12m) + '</span></div>' +
+          '<div class="mo-metric"><span class="mo-metric-label">1M Return</span><span class="mo-metric-val ' + retClass(s.ret_1m) + '">' + fmtPct(s.ret_1m) + '</span></div>' +
+          '<div class="mo-metric"><span class="mo-metric-label">Price</span><span class="mo-metric-val">' + fmtUsd(s.current_price) + '</span></div>' +
+          '<div class="mo-metric"><span class="mo-metric-label">52W High</span><span class="mo-metric-val">' + fmtUsd(s.high_52w) + '</span></div>' +
+          '<div class="mo-metric"><span class="mo-metric-label">Dist to High</span><span class="mo-metric-val ' + retClass(s.dist_high_pct) + '">' + fmtPct(s.dist_high_pct) + '</span></div>' +
+          '<div class="mo-metric"><span class="mo-metric-label">Volume Trend</span><span class="mo-metric-val">' + esc(s.vol_trend) + '</span></div>' +
+          '<div class="mo-metric"><span class="mo-metric-label">RSI (14)</span><span class="mo-rsi ' + rsiCl + '">' + (s.rsi != null ? s.rsi.toFixed(1) : "N/A") + '</span></div>' +
+          '<div class="mo-metric"><span class="mo-metric-label">Vol Ratio</span><span class="mo-metric-val">' + (s.vol_ratio != null ? s.vol_ratio.toFixed(3) + "×" : "N/A") + '</span></div>' +
+        '</div>' +
+        '<div class="sparkline-container"><canvas id="spark-' + idx + '"></canvas></div>' +
+        '<div class="mo-actions">' +
+          '<button class="btn btn-ghost" onclick="addToWatchlist(\'' + esc(s.ticker) + '\')">Add to Watchlist</button>' +
+          '<button class="btn btn-ghost" onclick="addToSimulator(\'' + esc(s.ticker) + '\', ' + (s.current_price || 0) + ')">Add to Simulator</button>' +
+        '</div></div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+    // Draw sparklines after DOM render
+    requestAnimationFrame(() => {
+      data.forEach((s, idx) => {
+        const cvs = document.getElementById("spark-" + idx);
+        if (cvs && s.sparkline) drawSparkline(cvs, s.sparkline);
+      });
+    });
+  } catch (e) {
+    el.innerHTML = '<p class="loading" style="color:var(--red)">Error scanning momentum: ' + esc(e.message) + '</p>';
+  }
+}
+
+function addToWatchlist(ticker) { alert("Added " + ticker + " to watchlist (feature placeholder)."); }
+function addToSimulator(ticker, price) {
+  window.location = "/portfolio";
+}
+
+/* ---- Earnings ---- */
+async function scanEarnings() {
+  const el = document.getElementById("earnings-content");
+  el.innerHTML = '<p class="loading"><span class="spinner"></span>Scanning upcoming earnings… this takes 30-60 seconds.</p>';
+  showPanel("earnings");
+  try {
+    const res = await fetch("/api/opportunities/earnings", { cache: "no-store" });
+    const data = await res.json();
+    if (!data || data.length === 0) {
+      el.innerHTML = '<p class="er-empty">No earnings events found in the next 14 days for the screening universe.</p>';
+      return;
+    }
+    let html = '<div style="overflow-x:auto"><table class="er-table"><thead><tr>' +
+      '<th>Stock</th><th>Earnings Date</th><th>Est EPS</th><th>Last 4 Qtrs</th>' +
+      '<th>Target vs Price</th><th>MERIDIAN</th><th>Signal</th></tr></thead><tbody>';
+    data.forEach(s => {
+      const flagCl = s.flag === "green" ? "er-flag-green" : s.flag === "red" ? "er-flag-red" : "er-flag-amber";
+      // Surprise dots
+      let dots = "";
+      (s.surprise_history || []).forEach(q => {
+        const cl = q.beat ? "er-dot-beat" : "er-dot-miss";
+        const sym = q.beat ? "✓" : "✗";
+        const tip = (q.surprise_pct != null ? (q.surprise_pct >= 0 ? "+" : "") + q.surprise_pct.toFixed(1) + "%" : "");
+        dots += '<span class="er-surprise-dot ' + cl + '" title="' + esc(tip) + '">' + sym + '</span>';
+      });
+      html += '<tr><td><strong>' + esc(s.ticker) + '</strong><br><span style="font-size:11px;color:var(--text-muted)">' + esc(s.name) + '</span></td>' +
+        '<td class="font-mono">' + esc(s.earnings_date) + '<br><span style="font-size:10px;color:var(--text-muted)">' + (s.days_until != null ? s.days_until + " days" : "") + '</span></td>' +
+        '<td class="font-mono">' + (s.eps_estimate != null ? "$" + s.eps_estimate.toFixed(2) : "—") + '</td>' +
+        '<td><div class="er-surprise-row">' + (dots || '<span style="color:var(--text-muted);font-size:11px">No data</span>') + '</div>' +
+          '<span style="font-size:10px;color:var(--text-muted)">' + s.beats + ' beats / ' + s.misses + ' misses</span></td>' +
+        '<td class="font-mono">' +
+          (s.target_price != null ? fmtUsd(s.target_price) : "—") + '<br>' +
+          '<span style="font-size:11px" class="' + (s.upside_pct != null && s.upside_pct >= 0 ? "mo-positive" : s.upside_pct != null ? "mo-negative" : "") + '">' +
+          (s.upside_pct != null ? fmtPct(s.upside_pct) + " upside" : "") + '</span></td>' +
+        '<td class="font-mono">' + (s.meridian_score != null ? s.meridian_score.toFixed(1) : "—") + '</td>' +
+        '<td><span class="er-flag ' + flagCl + '">' + esc(s.flag_label) + '</span></td></tr>';
+      if (s.flag === "green" && s.setup) {
+        html += '<tr><td colspan="7"><div class="er-setup-box">' +
+          '<div class="er-setup-title">Pre-Earnings Setup</div>' +
+          '<p style="margin:0"><strong>Entry window:</strong> ' + esc(s.setup.entry_window) + '</p>' +
+          '<p style="margin:4px 0 0"><strong>PEAD note:</strong> ' + esc(s.setup.drift_note) + '</p>' +
+          '<p style="margin:4px 0 0;color:var(--amber)"><strong>Risk:</strong> ' + esc(s.setup.risk_note) + '</p>' +
+          '</div></td></tr>';
+      }
+    });
+    html += '</tbody></table></div>';
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<p class="loading" style="color:var(--red)">Error scanning earnings: ' + esc(e.message) + '</p>';
+  }
+}
+
+/* ---- Market Regime ---- */
+async function scanRegime() {
+  const el = document.getElementById("regime-content");
+  el.innerHTML = '<p class="loading"><span class="spinner"></span>Analyzing market regime… this takes 30-60 seconds.</p>';
+  showPanel("regime");
+  try {
+    const res = await fetch("/api/opportunities/regime", { cache: "no-store" });
+    const d = await res.json();
+    const regimeCl = d.regime === "bull" ? "bull regime-bull" : d.regime === "bear" ? "bear regime-bear" : "transition regime-transition";
+    let html = '<div class="regime-hero ' + regimeCl + '">' +
+      '<div class="regime-label">' + esc(d.regime_label) + '</div>' +
+      '<div class="regime-sub">Scanned ' + (d.scanned_at ? new Date(d.scanned_at).toLocaleString() : "just now") + '</div></div>';
+
+    // Signal cards
+    html += '<div class="signal-grid">';
+    // SPY vs 200MA
+    html += '<div class="signal-card"><div class="signal-label">S&P 500 vs 200-Day MA</div>' +
+      '<div class="signal-value" style="color:' + (d.spy_above_200ma ? "var(--green)" : "var(--red)") + '">' +
+      (d.spy_above_200ma ? "Above ✓" : "Below ✗") + '</div>' +
+      '<div class="signal-note">SPY ' + (d.spy_current != null ? "$" + d.spy_current : "—") +
+      ' · MA200 ' + (d.spy_ma200 != null ? "$" + d.spy_ma200.toFixed(0) : "—") +
+      ' · MA50 ' + (d.spy_ma50 != null ? "$" + d.spy_ma50.toFixed(0) : "—") + '</div></div>';
+    // VIX
+    const vixColor = d.vix_label === "low" ? "var(--green)" : d.vix_label === "normal" ? "var(--text)" : d.vix_label === "elevated" ? "var(--amber)" : "var(--red)";
+    html += '<div class="signal-card"><div class="signal-label">VIX (Fear Index)</div>' +
+      '<div class="signal-value" style="color:' + vixColor + '">' + (d.vix_current != null ? d.vix_current : "—") + '</div>' +
+      '<div class="signal-note">' + (d.vix_label ? d.vix_label.charAt(0).toUpperCase() + d.vix_label.slice(1) : "—") + ' volatility</div></div>';
+    // Breadth
+    const breadthColor = d.breadth_pct != null ? (d.breadth_pct > 60 ? "var(--green)" : d.breadth_pct < 40 ? "var(--red)" : "var(--amber)") : "var(--text-muted)";
+    html += '<div class="signal-card"><div class="signal-label">Market Breadth</div>' +
+      '<div class="signal-value" style="color:' + breadthColor + '">' + (d.breadth_pct != null ? d.breadth_pct + "%" : "—") + '</div>' +
+      '<div class="signal-note">Stocks above their 200-day MA</div></div>';
+    // Trend
+    const trendColor = d.trend === "uptrend" ? "var(--green)" : d.trend === "downtrend" ? "var(--red)" : "var(--amber)";
+    html += '<div class="signal-card"><div class="signal-label">Trend</div>' +
+      '<div class="signal-value" style="color:' + trendColor + '">' + (d.trend ? d.trend.charAt(0).toUpperCase() + d.trend.slice(1) : "—") + '</div>' +
+      '<div class="signal-note">' + (d.cross_signal === "golden_cross" ? "50MA above 200MA (Golden Cross)" : d.cross_signal === "death_cross" ? "50MA below 200MA (Death Cross)" : "") + '</div></div>';
+    html += '</div>';
+
+    // Recommendation box
+    html += '<div class="recommendation-box">' +
+      '<h4>Strategy Recommendation</h4>' +
+      '<p>Current conditions favor: <strong>' + esc(d.favored_strategy) + '</strong></p>' +
+      '<p>In your MERIDIAN portfolio, overweight: <strong>' + esc(d.overweight) + '</strong></p>' +
+      '<p>Reduce exposure to: <strong>' + esc(d.underweight) + '</strong></p></div>';
+
+    // Sector rotation
+    if (d.sectors && d.sectors.length > 0) {
+      html += '<h3 style="color:var(--gold);font-size:16px;margin:24px 0 10px">Sector Rotation (1M Performance)</h3>';
+      html += '<table class="sector-table"><thead><tr><th>Sector</th><th>ETF</th><th>1M Return</th><th>3M Return</th><th></th></tr></thead><tbody>';
+      const maxRet = Math.max(...d.sectors.map(s => Math.abs(s.ret_1m || 0)), 1);
+      d.sectors.forEach(s => {
+        const color = (s.ret_1m || 0) >= 0 ? "var(--green)" : "var(--red)";
+        const barW = Math.abs(s.ret_1m || 0) / maxRet * 80;
+        html += '<tr><td>' + esc(s.sector) + '</td><td class="font-mono">' + esc(s.symbol) + '</td>' +
+          '<td class="font-mono" style="color:' + color + '">' + fmtPct(s.ret_1m) + '</td>' +
+          '<td class="font-mono" style="color:' + ((s.ret_3m || 0) >= 0 ? "var(--green)" : "var(--red)") + '">' + (s.ret_3m != null ? fmtPct(s.ret_3m) : "—") + '</td>' +
+          '<td><span class="sector-bar" style="width:' + barW + 'px;background:' + color + '"></span></td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<p class="loading" style="color:var(--red)">Error analyzing regime: ' + esc(e.message) + '</p>';
+  }
+}
+</script>
+</body>
+</html>

@@ -259,7 +259,7 @@ async def auth_middleware(request: Request, call_next):
 
     # Browser HTML routes redirect; API routes must return 401 JSON (never 303), or fetch() follows
     # to /login HTML and JSON parsers leave dashboards without thesis/financials.
-    browser_get_paths = frozenset({"/", "/dashboard", "/portfolio"})
+    browser_get_paths = frozenset({"/", "/dashboard", "/portfolio", "/opportunities"})
     if request.method == "GET" and path in browser_get_paths:
         return RedirectResponse(url="/login", status_code=303)
     raise HTTPException(status_code=401, detail="Authentication required.")
@@ -1080,3 +1080,69 @@ def api_portfolio_delete(position_id: str, db: Session = Depends(get_db)):
     if not delete_position(position_id):
         raise HTTPException(status_code=404, detail="Position not found")
     return get_portfolio_payload(db)
+
+
+# ---------------------------------------------------------------------------
+# Market Opportunities — swing-trade and catalyst screener
+# ---------------------------------------------------------------------------
+
+_opportunities_html_cache: Optional[str] = None
+_opportunities_html_mtime: Optional[float] = None
+
+
+def _load_opportunities_html() -> str:
+    global _opportunities_html_cache, _opportunities_html_mtime
+    path = Path(__file__).resolve().parent / "opportunities_page.html"
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = None
+    if _opportunities_html_cache is None or _opportunities_html_mtime != mtime:
+        _opportunities_html_cache = path.read_text(encoding="utf-8")
+        _opportunities_html_mtime = mtime
+    return _opportunities_html_cache
+
+
+@app.get("/opportunities", response_class=HTMLResponse)
+def opportunities_page():
+    html = _load_opportunities_html()
+    return HTMLResponse(
+        content=html,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/api/opportunities/momentum")
+def api_momentum():
+    from app.opportunities.momentum import scan_momentum
+    from app.opportunities.universe import SCREEN_UNIVERSE
+    return scan_momentum(SCREEN_UNIVERSE, top_n=5)
+
+
+@app.get("/api/opportunities/earnings")
+def api_earnings(db: Session = Depends(get_db)):
+    from app.opportunities.earnings import scan_earnings
+    from app.opportunities.universe import SCREEN_UNIVERSE
+    meridian_scores: dict[str, float] = {}
+    recs = (
+        db.query(Recommendation, Company)
+        .join(Company, Company.id == Recommendation.company_id)
+        .order_by(Recommendation.as_of.desc())
+        .all()
+    )
+    seen: set[str] = set()
+    for rec, comp in recs:
+        if comp.ticker not in seen:
+            meridian_scores[comp.ticker] = rec.final_score
+            seen.add(comp.ticker)
+    return scan_earnings(SCREEN_UNIVERSE, meridian_scores=meridian_scores)
+
+
+@app.get("/api/opportunities/regime")
+def api_regime():
+    from app.opportunities.regime import scan_regime
+    from app.opportunities.universe import SCREEN_UNIVERSE
+    return scan_regime(SCREEN_UNIVERSE)
