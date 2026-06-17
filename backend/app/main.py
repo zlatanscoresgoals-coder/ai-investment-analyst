@@ -21,6 +21,7 @@ from app.ingestion.sec_filings import (
     metadata_from_submission,
     sec_edgar_company_search_url,
 )
+from app.maintenance import purge_synthetic_fallback_financial_metrics
 from app.market.quotes import fetch_live_quote, quote_debug_status
 from app.models import Company, ContextSignal, CriticalAlert, Filing, FinancialMetric, PersonaScore, Recommendation
 from app.news.investor_news import fetch_investor_news
@@ -277,15 +278,10 @@ def on_startup():
     except Exception:
         db.rollback()
 
-    # Purge synthetic fallback rows written by old code.
-    # Real SEC data has varied margins; the fake fallback always wrote exactly
-    # 25.0 / 24.2 / 23.4 for operating_margin across all companies and years.
+    # Purge synthetic fallback rows written by old code. Match the complete
+    # fallback signature so real SEC rows with similar margins are preserved.
     try:
-        deleted = (
-            db.query(FinancialMetric)
-            .filter(FinancialMetric.operating_margin.in_([25.0, 24.2, 23.4]))
-            .delete(synchronize_session=False)
-        )
+        deleted = purge_synthetic_fallback_financial_metrics(db)
         if deleted:
             db.commit()
             import logging
