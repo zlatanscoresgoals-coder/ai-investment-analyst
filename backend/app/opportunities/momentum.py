@@ -8,11 +8,25 @@ momentum score.  Uses only yfinance (free) for price/volume data.
 from __future__ import annotations
 
 import logging
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _finite_float(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _finite_or_default(value: Any, default: float) -> float:
+    number = _finite_float(value)
+    return number if number is not None else default
 
 
 def _compute_rsi(closes: list[float], period: int = 14) -> Optional[float]:
@@ -47,9 +61,13 @@ def _fetch_single(ticker: str) -> Optional[dict[str, Any]]:
         if hist is None or len(hist) < 60:
             return None
 
-        closes = hist["Close"].tolist()
-        volumes = hist["Volume"].tolist()
+        closes = [v for v in (_finite_float(c) for c in hist["Close"].tolist()) if v is not None]
+        volumes = [v for v in (_finite_float(c) for c in hist["Volume"].tolist()) if v is not None]
+        if len(closes) < 60:
+            return None
         current = closes[-1]
+        if current <= 0:
+            return None
 
         # Returns
         def _ret(days: int) -> Optional[float]:
@@ -108,7 +126,8 @@ def _rank_score(values: list[float], idx: int, max_pts: float) -> float:
     n = len(values)
     if n <= 1:
         return max_pts / 2.0
-    rank = sorted(values).index(values[idx])
+    clean_values = [_finite_or_default(v, 0.0) for v in values]
+    rank = sorted(clean_values).index(clean_values[idx])
     return rank / (n - 1) * max_pts
 
 
@@ -125,9 +144,9 @@ def scan_momentum(universe: list[str], top_n: int = 5) -> list[dict[str, Any]]:
         return []
 
     # Score components
-    ret6 = [r["ret_6m"] or 0 for r in results]
-    ret12 = [r["ret_12m"] or 0 for r in results]
-    vols = [r["vol_ratio"] or 1.0 for r in results]
+    ret6 = [_finite_or_default(r["ret_6m"], 0.0) for r in results]
+    ret12 = [_finite_or_default(r["ret_12m"], 0.0) for r in results]
+    vols = [_finite_or_default(r["vol_ratio"], 1.0) for r in results]
 
     for i, r in enumerate(results):
         score = 0.0

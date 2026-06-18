@@ -27,6 +27,8 @@ def _soft(value: float, good: float, bad: float, scale: float = 1.0) -> float:
     """
     Smooth score contribution for a metric.
     Returns +scale when value == good, 0 when value == midpoint, -scale at bad.
+    Supports both higher-is-better and lower-is-better metrics based on the
+    ordering of the good/bad thresholds.
     Uses a linear interpolation capped at ±scale.
     """
     if value is None:
@@ -34,7 +36,8 @@ def _soft(value: float, good: float, bad: float, scale: float = 1.0) -> float:
     span = abs(good - bad)
     if span == 0:
         return 0.0
-    raw = (value - (good + bad) / 2.0) / (span / 2.0) * scale
+    direction = 1.0 if good > bad else -1.0
+    raw = (value - (good + bad) / 2.0) / (span / 2.0) * scale * direction
     return max(-scale, min(scale, raw))
 
 
@@ -125,8 +128,9 @@ def score_buffett(metrics: dict[str, Any], sector: Optional[str] = None) -> floa
         score -= 8.0  # negative FCF is a red flag
 
     # Debt/EBITDA: leverage penalty
-    de = metrics.get("debt_to_ebitda") or 0.0
-    score += _soft(de, 0.5, 3.5, scale=8.0)   # good=low debt, bad=high debt
+    de = metrics.get("debt_to_ebitda")
+    if de is not None:
+        score += _soft(de, 0.5, 3.5, scale=8.0)   # good=low debt, bad=high debt
 
     # Trend bonuses (secondary — max ±6 total)
     gm_trend = metrics.get("gross_margin_trend")
@@ -217,8 +221,9 @@ def score_burry(metrics: dict[str, Any], sector: Optional[str] = None) -> float:
     score += _soft(cr, 2.5, 0.8, scale=12.0)
 
     # Debt/EBITDA: leverage (good = low)
-    de = metrics.get("debt_to_ebitda") or 0.0
-    score += _soft(de, de_good, de_bad, scale=12.0)
+    de = metrics.get("debt_to_ebitda")
+    if de is not None:
+        score += _soft(de, de_good, de_bad, scale=12.0)
 
     # Interest coverage
     ic = metrics.get("interest_coverage") or 0.0

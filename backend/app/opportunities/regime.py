@@ -7,6 +7,7 @@ All data from yfinance (free). No paid APIs.
 from __future__ import annotations
 
 import logging
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -14,6 +15,14 @@ from typing import Any, Optional
 from app.opportunities.universe import SECTOR_ETFS
 
 logger = logging.getLogger(__name__)
+
+
+def _finite_float(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _fetch_history(symbol: str, days: int = 300) -> Optional[list[float]]:
@@ -27,7 +36,8 @@ def _fetch_history(symbol: str, days: int = 300) -> Optional[list[float]]:
         hist = yf.Ticker(symbol).history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"))
         if hist is None or len(hist) < 20:
             return None
-        return hist["Close"].tolist()
+        closes = [v for v in (_finite_float(c) for c in hist["Close"].tolist()) if v is not None]
+        return closes if len(closes) >= 20 else None
     except Exception as exc:
         logger.debug("regime fetch %s: %s", symbol, exc)
         return None
@@ -72,10 +82,12 @@ def _sector_performance() -> list[dict[str, Any]]:
         closes = _fetch_history(symbol, days=65)
         if closes is None or len(closes) < 22:
             return None
+        if closes[-1] <= 0 or closes[-22] <= 0:
+            return None
         ret_1m = (closes[-1] / closes[-22] - 1.0) * 100.0
         ret_3m = None
         if len(closes) >= 63:
-            ret_3m = (closes[-1] / closes[-63] - 1.0) * 100.0
+            ret_3m = (closes[-1] / closes[-63] - 1.0) * 100.0 if closes[-63] > 0 else None
         return {
             "symbol": symbol,
             "sector": SECTOR_ETFS.get(symbol, symbol),
@@ -114,11 +126,12 @@ def scan_regime(universe: list[str]) -> dict[str, Any]:
     trend = "sideways"
     if spy_closes and len(spy_closes) >= 20:
         recent_20 = spy_closes[-20:]
-        slope = (recent_20[-1] - recent_20[0]) / recent_20[0] * 100
-        if slope > 2:
-            trend = "uptrend"
-        elif slope < -2:
-            trend = "downtrend"
+        if recent_20[0] > 0:
+            slope = (recent_20[-1] - recent_20[0]) / recent_20[0] * 100
+            if slope > 2:
+                trend = "uptrend"
+            elif slope < -2:
+                trend = "downtrend"
 
     # VIX
     vix_closes = _fetch_history("^VIX", days=30)
@@ -141,9 +154,10 @@ def scan_regime(universe: list[str]) -> dict[str, Any]:
     xlf_closes = _fetch_history("XLF", days=30)
     credit_signal = None
     if xlf_closes and spy_closes and len(xlf_closes) >= 22 and len(spy_closes) >= 22:
-        xlf_ret = (xlf_closes[-1] / xlf_closes[-22] - 1.0) * 100.0
-        spy_ret = (spy_closes[-1] / spy_closes[-22] - 1.0) * 100.0
-        credit_signal = round(xlf_ret - spy_ret, 2)
+        if xlf_closes[-22] > 0 and spy_closes[-22] > 0:
+            xlf_ret = (xlf_closes[-1] / xlf_closes[-22] - 1.0) * 100.0
+            spy_ret = (spy_closes[-1] / spy_closes[-22] - 1.0) * 100.0
+            credit_signal = round(xlf_ret - spy_ret, 2)
 
     # Sector rotation
     sectors = _sector_performance()
