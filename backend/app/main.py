@@ -16,6 +16,7 @@ from app.ingestion.ir_fetcher import fetch_ir_filing_fallback_urls
 from app.ingestion.sec_filings import (
     apply_sec_metadata_to_company,
     build_10k_list_from_submission,
+    fetch_financial_metrics_last_3y,
     get_submission_json_for_ticker,
     merge_sec_company_profile,
     metadata_from_submission,
@@ -158,10 +159,10 @@ def _merge_sec_companyfacts_into_key_financials(kf: dict[str, Any], sec_v: dict[
         if kf.get("revenue_growth_pct") is None:
             hw = sec_v.get("historical_window") or []
             if len(hw) >= 2 and isinstance(hw[-1], dict) and isinstance(hw[-2], dict):
-                n_new = hw[-1].get("net_income")
-                n_old = hw[-2].get("net_income")
-                if n_new is not None and n_old is not None and float(n_old) != 0:
-                    kf["revenue_growth_pct"] = (float(n_new) - float(n_old)) / abs(float(n_old)) * 100.0
+                r_new = hw[-1].get("revenue")
+                r_old = hw[-2].get("revenue")
+                if r_new is not None and r_old is not None and float(r_old) != 0:
+                    kf["revenue_growth_pct"] = (float(r_new) - float(r_old)) / abs(float(r_old)) * 100.0
     except (TypeError, ValueError, ZeroDivisionError):
         pass
 
@@ -176,6 +177,46 @@ def _get_or_create_company(db: Session, ticker: str) -> Company:
     db.commit()
     db.refresh(company)
     return company
+
+
+_FINANCIAL_METRIC_UPSERT_FIELDS = (
+    "revenue",
+    "gross_margin",
+    "operating_margin",
+    "net_margin",
+    "fcf",
+    "roic",
+    "roe",
+    "debt_to_ebitda",
+    "interest_coverage",
+    "current_ratio",
+    "shares_outstanding",
+    "valuation_pe",
+    "valuation_ev_ebitda",
+)
+
+
+def _upsert_sec_financial_metrics(db: Session, company: Company, sec_metrics: list[dict[str, Any]]) -> int:
+    metric_count = 0
+    for m in sec_metrics:
+        fy = m.get("fiscal_year")
+        if fy is None:
+            continue
+        existing = (
+            db.query(FinancialMetric)
+            .filter(FinancialMetric.company_id == company.id, FinancialMetric.fiscal_year == fy)
+            .first()
+        )
+        if existing:
+            for field in _FINANCIAL_METRIC_UPSERT_FIELDS:
+                val = m.get(field)
+                if val is not None:
+                    setattr(existing, field, val)
+        else:
+            payload = {field: m.get(field) for field in _FINANCIAL_METRIC_UPSERT_FIELDS if field in m}
+            db.add(FinancialMetric(company_id=company.id, fiscal_year=fy, **payload))
+        metric_count += 1
+    return metric_count
 
 
 def _store_filings_and_metrics(db: Session, company: Company) -> tuple[int, int, bool]:
@@ -205,10 +246,10 @@ def _store_filings_and_metrics(db: Session, company: Company) -> tuple[int, int,
             )
         )
 
+    metric_count = _upsert_sec_financial_metrics(db, company, fetch_financial_metrics_last_3y(company.ticker.upper()))
     db.commit()
-    # Financial metrics are fetched from SEC and persisted by the recommendation engine
-    # (_ensure_metric_rows). Never write fallback/synthetic data to the DB here.
-    return len(filings), 0, False
+    return len(filings), metric_count, False
+
 
 
 def _load_dashboard_html(last_run_display: str) -> str:
