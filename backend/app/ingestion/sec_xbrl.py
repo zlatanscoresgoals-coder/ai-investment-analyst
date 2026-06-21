@@ -54,10 +54,13 @@ BUYBACK_TAGS = (
 
 TOTAL_ASSETS_TAGS = ("Assets",)
 
-LONG_TERM_DEBT_TAGS = (
+LONG_TERM_DEBT_TOTAL_TAGS = (
     "LongTermDebt",
-    "LongTermDebtNoncurrent",
     "LongTermDebtAndCapitalLeaseObligations",
+)
+
+LONG_TERM_DEBT_NONCURRENT_TAGS = (
+    "LongTermDebtNoncurrent",
     "LongTermNotesPayable",
 )
 
@@ -69,7 +72,11 @@ SHORT_TERM_DEBT_TAGS = (
     "LineOfCredit",
 )
 
-CURRENT_PORTION_LTD_TAGS = ("CurrentPortionOfLongTermDebt",)
+CURRENT_PORTION_LTD_TAGS = (
+    "LongTermDebtCurrent",
+    "CurrentPortionOfLongTermDebt",
+    "LongTermDebtAndCapitalLeaseObligationsCurrent",
+)
 
 EPS_BASIC_TAGS = (
     "EarningsPerShareBasic",
@@ -316,9 +323,17 @@ def total_debt_for_fy(us_gaap: dict[str, Any], fy: int) -> tuple[Optional[float]
     Returns (long_term, short_term, current_portion, total_sum).
     total_sum is None unless at least one component is non-null; missing components treated as 0 in the sum.
     """
-    lt = waterfall_money(us_gaap, LONG_TERM_DEBT_TAGS, fy)
+    long_term_total = waterfall_money(us_gaap, LONG_TERM_DEBT_TOTAL_TAGS, fy)
+    lt = waterfall_money(us_gaap, LONG_TERM_DEBT_NONCURRENT_TAGS, fy)
     st = waterfall_money(us_gaap, SHORT_TERM_DEBT_TAGS, fy)
     cur = waterfall_money(us_gaap, CURRENT_PORTION_LTD_TAGS, fy)
+
+    if long_term_total is not None:
+        if lt is None:
+            lt = max(0.0, float(long_term_total) - float(cur)) if cur is not None else float(long_term_total)
+        total = float(long_term_total) + float(st or 0.0)
+        return lt, st, cur, total
+
     parts = [x for x in (lt, st, cur) if x is not None]
     if not parts:
         return lt, st, cur, None
