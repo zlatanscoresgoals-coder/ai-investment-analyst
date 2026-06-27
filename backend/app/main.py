@@ -6,7 +6,7 @@ import secrets
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
@@ -262,7 +262,7 @@ async def auth_middleware(request: Request, call_next):
     browser_get_paths = frozenset({"/", "/dashboard", "/portfolio", "/opportunities"})
     if request.method == "GET" and path in browser_get_paths:
         return RedirectResponse(url="/login", status_code=303)
-    raise HTTPException(status_code=401, detail="Authentication required.")
+    return JSONResponse(status_code=401, content={"detail": "Authentication required."})
 
 
 @app.on_event("startup")
