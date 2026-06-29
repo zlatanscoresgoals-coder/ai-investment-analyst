@@ -19,7 +19,7 @@ services:
       - key: AUTH_USERNAME
         value: "admin"
       - key: AUTH_PASSWORD
-        value: "GoatAnalyst99"
+        sync: false
       - key: AUTO_REFRESH_ENABLED
         value: "true"
       - key: AUTO_REFRESH_INTERVAL_MINUTES

@@ -22,7 +22,7 @@ DATABASE
 REQUIRED / IMPORTANT ENV VARS
 - `DATABASE_URL` — Postgres (required for production).
 - `SEC_USER_AGENT` — descriptive string with contact email (SEC EDGAR requirement). Example: `MyApp/1.0 me@domain.com`
-- `AUTH_PASSWORD` — override default password; optionally `AUTH_USERNAME`.
+- `AUTH_PASSWORD` — set a strong private password; optionally `AUTH_USERNAME`.
 - `FINNHUB_API_KEY` — strongly recommended; Yahoo raw HTTP is often blocked from cloud/datacenter IPs, so live quotes fail without a market data API key.
 - Optional quote fallbacks: `TWELVE_DATA_API_KEY`, `ALPHAVANTAGE_API_KEY` (low free-tier limits).
 - Optional `NEWSAPI_KEY` — domain-filtered headlines for each ticker on `GET /recommendations/{TICKER}` (`investor_news`); dashboard loads these on refresh.

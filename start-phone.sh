@@ -11,6 +11,15 @@ fi
 source .venv/bin/activate
 pip install -r requirements.txt >/dev/null
 export SEC_USER_AGENT="${SEC_USER_AGENT:-AIInvestmentAnalyst/0.1 your-email@example.com}"
+export AUTH_ENABLED="${AUTH_ENABLED:-true}"
+if [ -z "${AUTH_PASSWORD:-}" ]; then
+  AUTH_PASSWORD="$(python3 - <<'PY'
+import secrets
+print(secrets.token_urlsafe(18))
+PY
+)"
+  export AUTH_PASSWORD
+fi
 
 PORT=8012
 while lsof -i :"$PORT" >/dev/null 2>&1; do
@@ -43,7 +52,7 @@ PY
 
 echo ""
 echo "AI Investment Analyst is running."
-echo "Login: admin / GoatAnalyst99"
+echo "Login: ${AUTH_USERNAME:-admin} / $AUTH_PASSWORD"
 echo ""
 echo "On this Mac:"
 echo "http://127.0.0.1:$PORT/login"

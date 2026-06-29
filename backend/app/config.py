@@ -1,5 +1,8 @@
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+LEGACY_DEFAULT_AUTH_PASSWORD = "GoatAnalyst99"
 
 
 class Settings(BaseSettings):
@@ -16,10 +19,10 @@ class Settings(BaseSettings):
     news_risk_neutral: float = 32.0
     risk_block_min_confidence: str = "medium"
     alert_webhook_url: str = ""
-    # Set AUTH_ENABLED=true (env) to require login again.
+    # Set AUTH_ENABLED=true (env) to require login.
     auth_enabled: bool = False
     auth_username: str = "admin"
-    auth_password: str = "GoatAnalyst99"
+    auth_password: str = ""
     auth_session_cookie: str = "aiia_session"
     # Optional: reliable quotes on cloud hosts (Yahoo often blocks datacenters).
     # Use QUOTE_API_FINNHUB or IIA_FINNHUB_TOKEN on Railway if a broken "Finnhub" build secret blocks deploy.
@@ -64,6 +67,16 @@ class Settings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    @model_validator(mode="after")
+    def require_non_default_auth_password(self):
+        if self.auth_enabled:
+            password = self.auth_password.strip()
+            if not password or password == LEGACY_DEFAULT_AUTH_PASSWORD:
+                raise ValueError(
+                    "AUTH_PASSWORD must be set to a non-default secret when AUTH_ENABLED=true."
+                )
+        return self
 
 
 settings = Settings()
