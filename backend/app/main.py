@@ -1,8 +1,8 @@
 import json
-from datetime import datetime
 from pathlib import Path
 import re
 import secrets
+import time
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
@@ -48,7 +48,8 @@ from app.universe import get_candidate_companies, get_candidate_tickers, resolve
 
 app = FastAPI(title="AI Investment Analyst API", version="0.1.0")
 Base.metadata.create_all(bind=engine)
-_active_sessions: set[str] = set()
+AUTH_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24
+_active_sessions: dict[str, float] = {}
 _dashboard_html_cache: Optional[str] = None
 _dashboard_html_mtime: Optional[float] = None
 _portfolio_html_cache: Optional[str] = None
@@ -244,6 +245,21 @@ def _is_auth_path(path: str) -> bool:
     return False
 
 
+def _is_active_session(token: str, *, now: Optional[float] = None) -> bool:
+    if not token:
+        return False
+
+    issued_at = _active_sessions.get(token)
+    if issued_at is None:
+        return False
+
+    now = time.monotonic() if now is None else now
+    if now - issued_at >= AUTH_SESSION_MAX_AGE_SECONDS:
+        _active_sessions.pop(token, None)
+        return False
+    return True
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     if not settings.auth_enabled:
@@ -254,7 +270,7 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
 
     token = request.cookies.get(settings.auth_session_cookie, "")
-    if token in _active_sessions:
+    if _is_active_session(token):
         return await call_next(request)
 
     # Browser HTML routes redirect; API routes must return 401 JSON (never 303), or fetch() follows
@@ -388,7 +404,7 @@ def login(username: str = Form(...), password: str = Form(...)):
     if username != settings.auth_username or password != settings.auth_password:
         return HTMLResponse("<h3>Invalid credentials. Go back and try again.</h3>", status_code=401)
     token = secrets.token_urlsafe(24)
-    _active_sessions.add(token)
+    _active_sessions[token] = time.monotonic()
     response = RedirectResponse(url="/dashboard", status_code=303)
     response.set_cookie(
         settings.auth_session_cookie,
@@ -396,7 +412,7 @@ def login(username: str = Form(...), password: str = Form(...)):
         httponly=True,
         samesite="lax",
         secure=False,
-        max_age=60 * 60 * 24,
+        max_age=AUTH_SESSION_MAX_AGE_SECONDS,
     )
     return response
 
@@ -404,8 +420,7 @@ def login(username: str = Form(...), password: str = Form(...)):
 @app.get("/logout")
 def logout(request: Request):
     token = request.cookies.get(settings.auth_session_cookie, "")
-    if token in _active_sessions:
-        _active_sessions.remove(token)
+    _active_sessions.pop(token, None)
     response = RedirectResponse(url="/login", status_code=303)
     response.delete_cookie(settings.auth_session_cookie)
     return response
