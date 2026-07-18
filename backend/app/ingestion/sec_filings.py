@@ -199,13 +199,13 @@ def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
     """
     from app.ingestion.sec_xbrl import (
         CAPEX_TAGS,
+        CASH_TAGS,
         CFO_TAGS,
         DEPRECIATION_TAGS,
         EQUITY_TAGS,
         INTEREST_EXPENSE_TAGS,
         NET_INCOME_TAGS,
         OPERATING_INCOME_TAGS,
-        TOTAL_ASSETS_TAGS,
         collect_fiscal_years_from_revenue,
         total_debt_for_fy,
         waterfall_money,
@@ -259,9 +259,9 @@ def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
         cfo_val = waterfall_money(us_gaap, CFO_TAGS, year)
         capex_raw = waterfall_money(us_gaap, CAPEX_TAGS, year)
         eq = waterfall_money(us_gaap, EQUITY_TAGS, year)
-        total_assets = waterfall_money(us_gaap, TOTAL_ASSETS_TAGS, year)
         ca = waterfall_money(us_gaap, _CURRENT_ASSETS_TAGS, year)
         cl = waterfall_money(us_gaap, _CURRENT_LIAB_TAGS, year)
+        cash = waterfall_money(us_gaap, CASH_TAGS, year)
         dep = waterfall_money(us_gaap, DEPRECIATION_TAGS, year)
         int_exp = waterfall_money(us_gaap, INTEREST_EXPENSE_TAGS, year)
         ebitda_direct = waterfall_money(us_gaap, _EBITDA_DIRECT_TAGS, year)
@@ -277,10 +277,13 @@ def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
 
         roe = _safe_pct(ni, eq)
 
+        # Debt/EBITDA from SEC balance sheet debt
+        _, _, _, total_debt = total_debt_for_fy(us_gaap, year)
+
         # ROIC = NOPAT / Invested Capital; proxy: op_inc*(1-assumed_tax) / (equity + total_debt - cash)
         roic = None
-        if op_inc is not None and total_assets is not None and cl is not None:
-            invested_capital = float(total_assets) - float(cl)
+        if op_inc is not None and (eq is not None or total_debt is not None or cash is not None):
+            invested_capital = float(eq or 0.0) + float(total_debt or 0.0) - float(cash or 0.0)
             if invested_capital > 0:
                 nopat = float(op_inc) * 0.79  # assume ~21% effective tax
                 roic = nopat / invested_capital * 100.0
@@ -292,8 +295,6 @@ def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
         if ebitda is None and op_inc is not None and dep is not None:
             ebitda = float(op_inc) + abs(float(dep))
 
-        # Debt/EBITDA from SEC balance sheet debt
-        _, _, _, total_debt = total_debt_for_fy(us_gaap, year)
         debt_to_ebitda = None
         if total_debt is not None and ebitda is not None and float(ebitda) > 0:
             debt_to_ebitda = float(total_debt) / float(ebitda)
