@@ -63,9 +63,9 @@ Use:
 
 1. Connect the GitHub repo and deploy. Either:
    - Set the service **Root Directory** to `backend` and start with `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, **or**
-   - Keep **repo root** as the service root: `railway.toml` uses **RAILPACK** (Railway’s current builder; do not use `nixpacks`). A root **`requirements.txt`** delegates to `backend` via `-r backend/requirements.txt`; start command `cd backend && uvicorn …`.
+   - Keep **repo root** as the service root: `railway.toml` uses **RAILPACK** (Railway’s current builder; do not use `nixpacks`). A root **`requirements.txt`** delegates to `backend` via `-r backend/requirements.txt`; the start command runs `uvicorn …` from the backend app path installed by the root requirements file.
 2. Add a **Postgres** plugin and set `DATABASE_URL` on the web service (SQLAlchemy style `postgresql+psycopg2://…` is fine).
-3. Set `SEC_USER_AGENT`, `AUTH_PASSWORD`, and **`FINNHUB_API_KEY`** (quotes often fail from cloud IPs without it).
+3. Set `SEC_USER_AGENT`, `AUTH_PASSWORD` (a strong secret), and **`FINNHUB_API_KEY`** (quotes often fail from cloud IPs without it). `railway.toml` defaults `AUTH_ENABLED=true` and refuses to start if `AUTH_PASSWORD` is missing or still set to the checked-in fallback.
 4. After deploy, open `https://<your-railway-url>/health/quote?ticker=AAPL` (no login) to see which quote provider succeeded.
 
 For a ready-made message to paste into Railway’s AI assistant, see **`RAILWAY_AI_AGENT_PROMPT.txt`** in the repo root.
