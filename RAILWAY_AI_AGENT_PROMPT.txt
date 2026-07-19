@@ -8,7 +8,7 @@ REPOSITORY LAYOUT
 - Monorepo: Python app lives under folder `backend/` (not the repo root).
 - Entrypoint: `uvicorn app.main:app --host 0.0.0.0 --port $PORT` with working directory = `backend` (PYTHONPATH must resolve `app` as `backend/app`).
 - Dependencies: `backend/requirements.txt` (includes FastAPI, SQLAlchemy, yfinance, requests, etc.).
-- Repo root has `railway.toml` with builder **RAILPACK** (not nixpacks), root `requirements.txt` containing `-r backend/requirements.txt`, and startCommand: `cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Repo root has `railway.toml` with builder **RAILPACK** (not nixpacks), root `requirements.txt` containing `-r backend/requirements.txt`, and a startCommand that defaults `AUTH_ENABLED=true`, refuses the checked-in fallback password, then runs `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
 
 ALTERNATIVE (cleaner on Railway)
 - Set the service “Root Directory” to `backend` in Railway UI, then:
@@ -22,7 +22,8 @@ DATABASE
 REQUIRED / IMPORTANT ENV VARS
 - `DATABASE_URL` — Postgres (required for production).
 - `SEC_USER_AGENT` — descriptive string with contact email (SEC EDGAR requirement). Example: `MyApp/1.0 me@domain.com`
-- `AUTH_PASSWORD` — override default password; optionally `AUTH_USERNAME`.
+- `AUTH_ENABLED=true` — required for public deployments; repo-root `railway.toml` defaults this to true if unset.
+- `AUTH_PASSWORD` — required strong secret; repo-root `railway.toml` refuses to start if it is missing or still set to the fallback password. Optionally set `AUTH_USERNAME`.
 - `FINNHUB_API_KEY` — strongly recommended; Yahoo raw HTTP is often blocked from cloud/datacenter IPs, so live quotes fail without a market data API key.
 - Optional quote fallbacks: `TWELVE_DATA_API_KEY`, `ALPHAVANTAGE_API_KEY` (low free-tier limits).
 - Optional `NEWSAPI_KEY` — domain-filtered headlines for each ticker on `GET /recommendations/{TICKER}` (`investor_news`); dashboard loads these on refresh.
