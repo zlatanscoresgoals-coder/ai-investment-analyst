@@ -1,6 +1,31 @@
 from typing import Optional
 
 
+def _positive_year_values(rows: list[dict], key: str) -> list[tuple[int, float]]:
+    out: list[tuple[int, float]] = []
+    for row in rows:
+        try:
+            fiscal_year = int(row["fiscal_year"])
+            value = float(row[key])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if value > 0:
+            out.append((fiscal_year, value))
+    return sorted(out, key=lambda item: item[0])
+
+
+def _cagr_pct_over_fiscal_years(rows: list[dict], key: str) -> Optional[float]:
+    vals = _positive_year_values(rows, key)
+    if len(vals) < 2:
+        return None
+    start_year, start_value = vals[0]
+    end_year, end_value = vals[-1]
+    year_span = end_year - start_year
+    if year_span <= 0:
+        return None
+    return ((end_value / start_value) ** (1.0 / year_span) - 1.0) * 100.0
+
+
 def compute_financial_ratios(
     latest_metrics: dict,
     prior_metrics: Optional[dict] = None,
@@ -24,12 +49,7 @@ def compute_financial_ratios(
         sorted_rows = sorted(trend_rows, key=lambda r: r.get("fiscal_year") or 0)
 
         # FCF CAGR over available history
-        fcf_vals = [r["fcf"] for r in sorted_rows if r.get("fcf") is not None and r["fcf"] > 0]
-        if len(fcf_vals) >= 2:
-            n = len(fcf_vals) - 1
-            ratios["fcf_cagr_pct"] = ((fcf_vals[-1] / fcf_vals[0]) ** (1.0 / n) - 1.0) * 100.0
-        else:
-            ratios["fcf_cagr_pct"] = None
+        ratios["fcf_cagr_pct"] = _cagr_pct_over_fiscal_years(sorted_rows, "fcf")
 
         # Operating margin trend: latest minus oldest (positive = expanding)
         op_margins = [r["operating_margin"] for r in sorted_rows if r.get("operating_margin") is not None]
