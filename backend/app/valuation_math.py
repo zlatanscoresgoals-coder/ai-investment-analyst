@@ -226,16 +226,10 @@ def _estimate_dist_growth(dist_hist: list[dict[str, Any]]) -> float:
     Compute CAGR of total distributions (div + buybacks) over the available 3-year history.
     Falls back to 5% if insufficient data.
     """
-    vals = []
-    for row in dist_hist:
-        d = row.get("distributions")
-        if d is not None and float(d) > 0:
-            vals.append(float(d))
-    if len(vals) >= 2:
-        n = len(vals) - 1
-        cagr = (vals[-1] / vals[0]) ** (1.0 / n) - 1.0
+    cagr_pct = _cagr_pct_over_fiscal_years(dist_hist, "distributions")
+    if cagr_pct is not None:
         # Cap between 0% and 25% — extreme values are noise
-        return round(max(0.0, min(25.0, cagr * 100.0)), 2)
+        return round(max(0.0, min(25.0, cagr_pct)), 2)
     return 5.0
 
 
@@ -260,18 +254,33 @@ def _historical_fcf_growth_pct(historical_window: list[dict]) -> Optional[float]
     Returns None if fewer than 2 positive FCF observations.
     Capped at [0%, 40%] to avoid noise from near-zero base years.
     """
-    vals = []
-    for row in (historical_window or []):
+    cagr_pct = _cagr_pct_over_fiscal_years(historical_window or [], "fcf")
+    if cagr_pct is None:
+        return None
+    return round(max(0.0, min(40.0, cagr_pct)), 2)
+
+
+def _cagr_pct_over_fiscal_years(rows: list[dict], value_key: str) -> Optional[float]:
+    vals: list[tuple[int, float]] = []
+    for row in rows:
         if not isinstance(row, dict):
             continue
-        f = row.get("fcf")
-        if f is not None and float(f) > 0:
-            vals.append(float(f))
+        try:
+            fiscal_year = int(row["fiscal_year"])
+            value = float(row[value_key])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if value > 0:
+            vals.append((fiscal_year, value))
     if len(vals) < 2:
         return None
-    n = len(vals) - 1
-    cagr = (vals[-1] / vals[0]) ** (1.0 / n) - 1.0
-    return round(max(0.0, min(40.0, cagr * 100.0)), 2)
+    vals.sort(key=lambda item: item[0])
+    start_year, start_value = vals[0]
+    end_year, end_value = vals[-1]
+    year_span = end_year - start_year
+    if year_span <= 0:
+        return None
+    return ((end_value / start_value) ** (1.0 / year_span) - 1.0) * 100.0
 
 
 def build_valuation_bundle(
