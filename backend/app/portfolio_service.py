@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -20,18 +21,52 @@ def _ensure_parent() -> None:
     PORTFOLIO_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
+def _json_float_or_none(value: str) -> Optional[float]:
+    parsed = float(value)
+    return parsed if math.isfinite(parsed) else None
+
+
+def _finite_positive_float(value: Any) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(parsed) or parsed <= 0:
+        return None
+    return parsed
+
+
+def _sanitize_position(row: Any) -> Optional[dict[str, Any]]:
+    if not isinstance(row, dict):
+        return None
+    entry_price = _finite_positive_float(row.get("entryPrice"))
+    shares = _finite_positive_float(row.get("shares"))
+    if entry_price is None or shares is None:
+        return None
+    sanitized = dict(row)
+    sanitized["entryPrice"] = entry_price
+    sanitized["shares"] = shares
+    return sanitized
+
+
 def load_positions() -> list[dict[str, Any]]:
     _ensure_parent()
     if not PORTFOLIO_PATH.exists():
-        PORTFOLIO_PATH.write_text(json.dumps({"positions": []}, indent=2), encoding="utf-8")
-    data = json.loads(PORTFOLIO_PATH.read_text(encoding="utf-8"))
+        PORTFOLIO_PATH.write_text(json.dumps({"positions": []}, indent=2, allow_nan=False), encoding="utf-8")
+    data = json.loads(
+        PORTFOLIO_PATH.read_text(encoding="utf-8"),
+        parse_constant=lambda _: None,
+        parse_float=_json_float_or_none,
+    )
     rows = data.get("positions")
-    return list(rows) if isinstance(rows, list) else []
+    if not isinstance(rows, list):
+        return []
+    return [pos for row in rows if (pos := _sanitize_position(row)) is not None]
 
 
 def save_positions(positions: list[dict[str, Any]]) -> None:
     _ensure_parent()
-    PORTFOLIO_PATH.write_text(json.dumps({"positions": positions}, indent=2), encoding="utf-8")
+    PORTFOLIO_PATH.write_text(json.dumps({"positions": positions}, indent=2, allow_nan=False), encoding="utf-8")
 
 
 def _parse_iso_date(s: str) -> date:
@@ -57,13 +92,17 @@ def add_position(
 ) -> dict[str, Any]:
     t = ticker.upper().strip()
     co = (company or "").strip() or _resolve_company(db, t)
+    entry = _finite_positive_float(entry_price)
+    share_count = _finite_positive_float(shares)
+    if entry is None or share_count is None:
+        raise ValueError("Portfolio entry price and shares must be finite positive numbers")
     pos = {
         "id": uuid.uuid4().hex,
         "ticker": t,
         "company": co,
-        "entryPrice": float(entry_price),
+        "entryPrice": entry,
         "entryDate": entry_date[:10],
-        "shares": float(shares),
+        "shares": share_count,
         "notes": (notes or "").strip(),
     }
     positions = load_positions()
@@ -84,12 +123,12 @@ def delete_position(position_id: str) -> bool:
 
 def _enrich_one(p: dict[str, Any]) -> dict[str, Any]:
     ticker = str(p.get("ticker", "")).upper()
-    entry = float(p.get("entryPrice") or 0)
-    sh = float(p.get("shares") or 0)
+    entry = _finite_positive_float(p.get("entryPrice")) or 0.0
+    sh = _finite_positive_float(p.get("shares")) or 0.0
     cost = entry * sh
     q = fetch_live_quote(ticker)
     last = q.get("last_price") if q else None
-    cur_px = float(last) if last is not None and float(last) > 0 else entry
+    cur_px = _finite_positive_float(last) or entry
     mval = cur_px * sh
     pl = mval - cost
     pl_pct = (pl / cost * 100.0) if cost > 0 else 0.0
@@ -134,9 +173,9 @@ def build_daily_value_series(positions: list[dict[str, Any]], max_points: int = 
                 continue
             if d < ed:
                 continue
-            ep = float(p.get("entryPrice") or 0)
-            sh = float(p.get("shares") or 0)
-            cp = float(p.get("currentPrice") or ep)
+            ep = _finite_positive_float(p.get("entryPrice")) or 0.0
+            sh = _finite_positive_float(p.get("shares")) or 0.0
+            cp = _finite_positive_float(p.get("currentPrice")) or ep
             span_days = max(1, (end - ed).days)
             elapsed = (d - ed).days
             frac = min(1.0, elapsed / span_days)
@@ -162,11 +201,15 @@ def compute_summary(enriched: list[dict[str, Any]]) -> dict[str, Any]:
             "worstTicker": None,
             "worstPct": None,
         }
-    inv = sum(float(p.get("costBasis") or 0) for p in enriched)
-    cur = sum(float(p.get("marketValue") or 0) for p in enriched)
+    inv = sum(_finite_positive_float(p.get("costBasis")) or 0.0 for p in enriched)
+    cur = sum(_finite_positive_float(p.get("marketValue")) or 0.0 for p in enriched)
     tg = cur - inv
     tgp = (tg / inv * 100.0) if inv > 0 else 0.0
-    by_pct = [(p["ticker"], float(p.get("gainLossPct") or 0)) for p in enriched if float(p.get("costBasis") or 0) > 0]
+    by_pct = [
+        (p["ticker"], float(p.get("gainLossPct") or 0))
+        for p in enriched
+        if (_finite_positive_float(p.get("costBasis")) or 0.0) > 0
+    ]
     best_t, best_p = None, None
     worst_t, worst_p = None, None
     if by_pct:

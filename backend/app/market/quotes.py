@@ -3,6 +3,7 @@
 import csv
 import io
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
@@ -25,10 +26,10 @@ def _safe_float(x: Any) -> Optional[float]:
         return None
     try:
         v = float(x)
-        if v != v:  # NaN
+        if not math.isfinite(v):
             return None
         return v
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -295,11 +296,13 @@ def _fetch_stooq(ticker: str) -> Optional[dict[str, Any]]:
             close_raw, open_raw = last[6], last[3]
         if not close_raw or close_raw == "N/D":
             return None
-        price = float(close_raw)
+        price = _safe_float(close_raw)
+        if price is None or price <= 0:
+            return None
         change_pct = None
         if open_raw and open_raw != "N/D":
-            o = float(open_raw)
-            if o != 0:
+            o = _safe_float(open_raw)
+            if o is not None and o != 0:
                 change_pct = ((price - o) / o) * 100.0
         return {
             "symbol": sym,
