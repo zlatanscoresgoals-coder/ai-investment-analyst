@@ -1,7 +1,10 @@
 from datetime import date, datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, confloat
+
+
+PositiveFiniteFloat = confloat(gt=0, allow_inf_nan=False)
 
 
 class InvestorNewsItem(BaseModel):
@@ -85,8 +88,8 @@ class SecMetricRow(BaseModel):
 
 class PortfolioAddIn(BaseModel):
     ticker: str
-    entryPrice: float = Field(gt=0)
-    shares: float = Field(gt=0)
+    entryPrice: PositiveFiniteFloat
+    shares: PositiveFiniteFloat
     entryDate: str
     notes: str = ""
 
