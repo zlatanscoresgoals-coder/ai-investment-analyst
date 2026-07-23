@@ -16,10 +16,36 @@ Design principles:
 
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 
 
+def _finite_or_none(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return numeric
+
+
+def _metric_or_zero(metrics: dict[str, Any], key: str) -> float:
+    return _finite_or_none(metrics.get(key)) or 0.0
+
+
+def _bounded_contribution(value: Any, multiplier: float, lower: float, upper: float) -> float:
+    numeric = _finite_or_none(value)
+    if numeric is None:
+        return 0.0
+    return max(lower, min(upper, numeric * multiplier))
+
+
 def _clamp(value: float) -> float:
+    if not math.isfinite(value):
+        return 0.0
     return max(0.0, min(100.0, value))
 
 
@@ -29,6 +55,7 @@ def _soft(value: float, good: float, bad: float, scale: float = 1.0) -> float:
     Returns +scale when value == good, 0 when value == midpoint, -scale at bad.
     Uses a linear interpolation capped at ±scale.
     """
+    value = _finite_or_none(value)
     if value is None:
         return 0.0
     span = abs(good - bad)
@@ -106,16 +133,16 @@ def score_buffett(metrics: dict[str, Any], sector: Optional[str] = None) -> floa
     score = 50.0
 
     # ROIC: most important signal of durable competitive advantage
-    roic = metrics.get("roic") or 0.0
+    roic = _metric_or_zero(metrics, "roic")
     score += _soft(roic, roic_good, roic_ok, scale=14.0)
 
     # Gross margin: proxy for pricing power
-    gm = metrics.get("gross_margin") or 0.0
+    gm = _metric_or_zero(metrics, "gross_margin")
     score += _soft(gm, gm_good, gm_ok, scale=10.0)
 
     # FCF: normalised to revenue so large-cap doesn't dominate small-cap
-    rev = metrics.get("revenue") or 0.0
-    fcf = metrics.get("fcf") or 0.0
+    rev = _metric_or_zero(metrics, "revenue")
+    fcf = _metric_or_zero(metrics, "fcf")
     if rev > 0:
         fcf_margin = fcf / rev * 100.0
         score += _soft(fcf_margin, 15.0, 0.0, scale=10.0)
@@ -125,17 +152,13 @@ def score_buffett(metrics: dict[str, Any], sector: Optional[str] = None) -> floa
         score -= 8.0  # negative FCF is a red flag
 
     # Debt/EBITDA: leverage penalty
-    de = metrics.get("debt_to_ebitda") or 0.0
+    de = _metric_or_zero(metrics, "debt_to_ebitda")
     score += _soft(de, 0.5, 3.5, scale=8.0)   # good=low debt, bad=high debt
 
     # Trend bonuses (secondary — max ±6 total)
-    gm_trend = metrics.get("gross_margin_trend")
-    if gm_trend is not None:
-        score += max(-3.0, min(3.0, gm_trend * 0.3))
+    score += _bounded_contribution(metrics.get("gross_margin_trend"), 0.3, -3.0, 3.0)
 
-    fcf_cagr = metrics.get("fcf_cagr_pct")
-    if fcf_cagr is not None:
-        score += max(-3.0, min(3.0, fcf_cagr * 0.1))
+    score += _bounded_contribution(metrics.get("fcf_cagr_pct"), 0.1, -3.0, 3.0)
 
     return _clamp(score)
 
@@ -153,21 +176,19 @@ def score_ackman(metrics: dict[str, Any], sector: Optional[str] = None) -> float
     score = 45.0
 
     # Operating margin: core profitability
-    om = metrics.get("operating_margin") or 0.0
+    om = _metric_or_zero(metrics, "operating_margin")
     score += _soft(om, op_good, op_ok, scale=14.0)
 
     # Interest coverage: financial safety
-    ic = metrics.get("interest_coverage") or 0.0
+    ic = _metric_or_zero(metrics, "interest_coverage")
     score += _soft(ic, 12.0, 3.0, scale=10.0)
 
     # ROIC
-    roic = metrics.get("roic") or 0.0
+    roic = _metric_or_zero(metrics, "roic")
     score += _soft(roic, roic_good, roic_ok, scale=8.0)
 
     # Margin expansion trend (Ackman prizes improving businesses)
-    om_trend = metrics.get("operating_margin_trend")
-    if om_trend is not None:
-        score += max(-5.0, min(5.0, om_trend * 0.5))
+    score += _bounded_contribution(metrics.get("operating_margin_trend"), 0.5, -5.0, 5.0)
 
     return _clamp(score)
 
@@ -183,17 +204,15 @@ def score_wood(metrics: dict[str, Any], sector: Optional[str] = None) -> float:
     score = 35.0
 
     # Revenue growth: primary signal
-    rg = metrics.get("revenue_growth_pct") or 0.0
+    rg = _metric_or_zero(metrics, "revenue_growth_pct")
     score += _soft(rg, 25.0, 5.0, scale=20.0)
 
     # Gross margin: scalability of the growth
-    gm = metrics.get("gross_margin") or 0.0
+    gm = _metric_or_zero(metrics, "gross_margin")
     score += _soft(gm, 60.0, 30.0, scale=10.0)
 
     # FCF CAGR: growth converting to cash (secondary)
-    fcf_cagr = metrics.get("fcf_cagr_pct")
-    if fcf_cagr is not None:
-        score += max(-5.0, min(8.0, fcf_cagr * 0.2))
+    score += _bounded_contribution(metrics.get("fcf_cagr_pct"), 0.2, -5.0, 8.0)
 
     return _clamp(score)
 
@@ -213,26 +232,24 @@ def score_burry(metrics: dict[str, Any], sector: Optional[str] = None) -> float:
     score = 45.0
 
     # Current ratio: liquidity buffer
-    cr = metrics.get("current_ratio") or 0.0
+    cr = _metric_or_zero(metrics, "current_ratio")
     score += _soft(cr, 2.5, 0.8, scale=12.0)
 
     # Debt/EBITDA: leverage (good = low)
-    de = metrics.get("debt_to_ebitda") or 0.0
+    de = _metric_or_zero(metrics, "debt_to_ebitda")
     score += _soft(de, de_good, de_bad, scale=12.0)
 
     # Interest coverage
-    ic = metrics.get("interest_coverage") or 0.0
+    ic = _metric_or_zero(metrics, "interest_coverage")
     score += _soft(ic, 10.0, 2.0, scale=8.0)
 
     # P/E: Burry looks for undervaluation (good = low P/E)
-    pe = metrics.get("valuation_pe")
+    pe = _finite_or_none(metrics.get("valuation_pe"))
     if pe is not None and pe > 0:
         score += _soft(pe, 12.0, 30.0, scale=8.0)
 
     # Deleveraging trend bonus
-    debt_trend = metrics.get("debt_trend")
-    if debt_trend is not None:
-        score += max(-4.0, min(4.0, -debt_trend * 1.0))  # negative trend = deleveraging = good
+    score += _bounded_contribution(metrics.get("debt_trend"), -1.0, -4.0, 4.0)
 
     return _clamp(score)
 
@@ -250,21 +267,19 @@ def score_institutional(metrics: dict[str, Any], sector: Optional[str] = None) -
     sk = _sector_key(sector)
     roe_good = 20.0 if sk in ("tech", "health") else 15.0
     roe_ok   = 8.0  if sk in ("tech", "health") else 6.0
-    roe = metrics.get("roe") or 0.0
+    roe = _metric_or_zero(metrics, "roe")
     score += _soft(roe, roe_good, roe_ok, scale=14.0)
 
     # Revenue scale proxy: $10B+ is large-cap institutional territory
-    rev = metrics.get("revenue") or 0.0
+    rev = _metric_or_zero(metrics, "revenue")
     rev_bn = rev / 1e9
     score += _soft(rev_bn, 50.0, 5.0, scale=8.0)
 
     # Net margin: earnings quality
-    nm = metrics.get("net_margin") or 0.0
+    nm = _metric_or_zero(metrics, "net_margin")
     score += _soft(nm, 15.0, 3.0, scale=8.0)
 
     # ROE trend (institutions want improving returns)
-    roe_trend = metrics.get("roe_trend")
-    if roe_trend is not None:
-        score += max(-4.0, min(4.0, roe_trend * 0.3))
+    score += _bounded_contribution(metrics.get("roe_trend"), 0.3, -4.0, 4.0)
 
     return _clamp(score)
