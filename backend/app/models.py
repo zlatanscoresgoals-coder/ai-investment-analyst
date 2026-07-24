@@ -118,3 +118,16 @@ class CriticalAlert(Base):
     headline = Column(String(1024), nullable=False)
     url = Column(String(1024), nullable=True)
     details_json = Column(JSON, nullable=True)
+
+
+class PortfolioPosition(Base):
+    __tablename__ = "portfolio_positions"
+
+    id = Column(String(32), primary_key=True)
+    ticker = Column(String(16), nullable=False, index=True)
+    company = Column(String(255), nullable=False)
+    entry_price = Column(Float, nullable=False)
+    entry_date = Column(String(10), nullable=False)
+    shares = Column(Float, nullable=False)
+    notes = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)

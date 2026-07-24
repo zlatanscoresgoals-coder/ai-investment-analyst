@@ -954,7 +954,7 @@ def health_features():
         "run_full_scope": "POST /run/full?scope=candidates (default) — JSON pool; scope=all — entire DB.",
         "leaderboard": "GET /recommendations/leaderboard?limit=10 — top names by composite (score − headline risk penalty).",
         "sec_ingest": "POST /sec/ingest/{ticker} loads filings+metrics without creating recommendation cards",
-        "portfolio_tracker": "GET /portfolio — positions in backend/data/portfolio.json; GET/POST/DELETE /api/portfolio",
+        "portfolio_tracker": "GET /portfolio — DB-backed positions; GET/POST/DELETE /api/portfolio",
     }
 
 
@@ -1077,7 +1077,7 @@ def api_portfolio_add(body: PortfolioAddIn, db: Session = Depends(get_db)):
 
 @app.delete("/api/portfolio/{position_id}")
 def api_portfolio_delete(position_id: str, db: Session = Depends(get_db)):
-    if not delete_position(position_id):
+    if not delete_position(position_id, db=db):
         raise HTTPException(status_code=404, detail="Position not found")
     return get_portfolio_payload(db)
 

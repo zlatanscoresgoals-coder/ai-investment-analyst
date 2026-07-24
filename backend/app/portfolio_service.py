@@ -1,4 +1,4 @@
-"""Local JSON portfolio store + enrichment with live quotes and chart series."""
+"""Database-backed portfolio store + enrichment with live quotes and chart series."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from app.market.quotes import fetch_live_quote
-from app.models import Company
+from app.models import Company, PortfolioPosition
 
 PORTFOLIO_PATH = Path(__file__).resolve().parent.parent / "data" / "portfolio.json"
 
@@ -20,7 +20,7 @@ def _ensure_parent() -> None:
     PORTFOLIO_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
-def load_positions() -> list[dict[str, Any]]:
+def _load_positions_from_json() -> list[dict[str, Any]]:
     _ensure_parent()
     if not PORTFOLIO_PATH.exists():
         PORTFOLIO_PATH.write_text(json.dumps({"positions": []}, indent=2), encoding="utf-8")
@@ -32,6 +32,60 @@ def load_positions() -> list[dict[str, Any]]:
 def save_positions(positions: list[dict[str, Any]]) -> None:
     _ensure_parent()
     PORTFOLIO_PATH.write_text(json.dumps({"positions": positions}, indent=2), encoding="utf-8")
+
+
+def _position_to_dict(row: PortfolioPosition) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "ticker": row.ticker,
+        "company": row.company,
+        "entryPrice": row.entry_price,
+        "entryDate": row.entry_date,
+        "shares": row.shares,
+        "notes": row.notes or "",
+    }
+
+
+def _position_from_dict(raw: dict[str, Any]) -> Optional[PortfolioPosition]:
+    try:
+        ticker = str(raw.get("ticker") or "").upper().strip()
+        if not ticker:
+            return None
+        return PortfolioPosition(
+            id=str(raw.get("id") or uuid.uuid4().hex),
+            ticker=ticker,
+            company=str(raw.get("company") or ticker).strip() or ticker,
+            entry_price=float(raw.get("entryPrice")),
+            entry_date=str(raw.get("entryDate") or "")[:10],
+            shares=float(raw.get("shares")),
+            notes=str(raw.get("notes") or "").strip(),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _migrate_json_positions(db: Session) -> None:
+    if db.query(PortfolioPosition.id).first() is not None:
+        return
+    if not PORTFOLIO_PATH.exists():
+        return
+    rows = _load_positions_from_json()
+    migrated = [_position_from_dict(row) for row in rows if isinstance(row, dict)]
+    migrated = [row for row in migrated if row is not None]
+    if not migrated:
+        return
+    for row in migrated:
+        db.merge(row)
+    db.commit()
+    save_positions([])
+
+
+def load_positions(db: Optional[Session] = None) -> list[dict[str, Any]]:
+    if db is None:
+        return _load_positions_from_json()
+    _migrate_json_positions(db)
+    rows = db.query(PortfolioPosition).order_by(PortfolioPosition.created_at.asc(), PortfolioPosition.id.asc()).all()
+    return [_position_to_dict(row) for row in rows]
 
 
 def _parse_iso_date(s: str) -> date:
@@ -66,13 +120,33 @@ def add_position(
         "shares": float(shares),
         "notes": (notes or "").strip(),
     }
-    positions = load_positions()
-    positions.append(pos)
-    save_positions(positions)
+    if db is None:
+        positions = load_positions()
+        positions.append(pos)
+        save_positions(positions)
+        return pos
+    db.add(
+        PortfolioPosition(
+            id=pos["id"],
+            ticker=pos["ticker"],
+            company=pos["company"],
+            entry_price=pos["entryPrice"],
+            entry_date=pos["entryDate"],
+            shares=pos["shares"],
+            notes=pos["notes"],
+        )
+    )
+    db.commit()
     return pos
 
 
-def delete_position(position_id: str) -> bool:
+def delete_position(position_id: str, db: Optional[Session] = None) -> bool:
+    if db is not None:
+        deleted = db.query(PortfolioPosition).filter(PortfolioPosition.id == position_id).delete()
+        if not deleted:
+            return False
+        db.commit()
+        return True
     positions = load_positions()
     n = len(positions)
     positions = [p for p in positions if str(p.get("id")) != position_id]
@@ -185,7 +259,7 @@ def compute_summary(enriched: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def get_portfolio_payload(db: Optional[Session]) -> dict[str, Any]:
-    raw = load_positions()
+    raw = load_positions(db)
     enriched = [_enrich_one(p) for p in raw]
     summary = compute_summary(enriched)
     chart = build_daily_value_series(enriched)
