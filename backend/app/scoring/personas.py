@@ -156,8 +156,8 @@ def score_ackman(metrics: dict[str, Any], sector: Optional[str] = None) -> float
     om = metrics.get("operating_margin") or 0.0
     score += _soft(om, op_good, op_ok, scale=14.0)
 
-    # Interest coverage: financial safety
-    ic = metrics.get("interest_coverage") or 0.0
+    # Missing coverage is unknown, not 0x coverage. _soft treats None as neutral.
+    ic = metrics.get("interest_coverage")
     score += _soft(ic, 12.0, 3.0, scale=10.0)
 
     # ROIC
@@ -220,8 +220,8 @@ def score_burry(metrics: dict[str, Any], sector: Optional[str] = None) -> float:
     de = metrics.get("debt_to_ebitda") or 0.0
     score += _soft(de, de_good, de_bad, scale=12.0)
 
-    # Interest coverage
-    ic = metrics.get("interest_coverage") or 0.0
+    # Missing coverage is unknown, not 0x coverage. _soft treats None as neutral.
+    ic = metrics.get("interest_coverage")
     score += _soft(ic, 10.0, 2.0, scale=8.0)
 
     # P/E: Burry looks for undervaluation (good = low P/E)
