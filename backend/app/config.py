@@ -15,7 +15,8 @@ _CLOUD_RUNTIME_ENV_VARS = (
 
 
 def _is_sqlite_url(database_url: str) -> bool:
-    return database_url.strip().lower().startswith("sqlite:")
+    scheme = database_url.strip().lower().split(":", 1)[0]
+    return scheme.startswith("sqlite")
 
 
 def _is_cloud_runtime() -> bool:

@@ -15,7 +15,7 @@ class SettingsDatabaseGuardTests(unittest.TestCase):
 
     def test_rejects_sqlite_for_production_app_env(self) -> None:
         with self.assertRaises(ValidationError) as raised:
-            Settings(app_env="production", database_url="sqlite:///prod.db", _env_file=None)
+            Settings(app_env="production", database_url="sqlite+pysqlite:///prod.db", _env_file=None)
 
         self.assertIn("DATABASE_URL must be set", str(raised.exception))
 
