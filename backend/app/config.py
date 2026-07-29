@@ -1,5 +1,26 @@
-from pydantic import AliasChoices, Field
+import os
+
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+_CLOUD_RUNTIME_ENV_VARS = (
+    "RAILWAY_ENVIRONMENT",
+    "RAILWAY_ENVIRONMENT_NAME",
+    "RAILWAY_PROJECT_ID",
+    "RAILWAY_SERVICE_ID",
+    "RENDER",
+    "RENDER_SERVICE_ID",
+)
+
+
+def _is_sqlite_url(database_url: str) -> bool:
+    scheme = database_url.strip().lower().split(":", 1)[0]
+    return scheme.startswith("sqlite")
+
+
+def _is_cloud_runtime() -> bool:
+    return any(os.getenv(name) for name in _CLOUD_RUNTIME_ENV_VARS)
 
 
 class Settings(BaseSettings):
@@ -62,6 +83,16 @@ class Settings(BaseSettings):
         ),
         validation_alias=AliasChoices("CRITICAL_NEWS_ALLOWLIST", "critical_news_allowlist"),
     )
+
+    @model_validator(mode="after")
+    def require_persistent_database_for_cloud(self) -> "Settings":
+        deployed_env = str(self.app_env or "").strip().lower() in {"prod", "production", "staging"}
+        database_url = str(self.database_url or "").strip()
+        if (deployed_env or _is_cloud_runtime()) and (not database_url or _is_sqlite_url(database_url)):
+            raise ValueError(
+                "DATABASE_URL must be set to a persistent database for cloud/production deployments"
+            )
+        return self
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
