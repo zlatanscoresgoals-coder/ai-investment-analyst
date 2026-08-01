@@ -20,6 +20,7 @@ from app.ingestion.sec_filings import (
     merge_sec_company_profile,
     metadata_from_submission,
     sec_edgar_company_search_url,
+    sync_annual_filings_for_company,
 )
 from app.market.quotes import fetch_live_quote, quote_debug_status
 from app.models import Company, ContextSignal, CriticalAlert, Filing, FinancialMetric, PersonaScore, Recommendation
@@ -185,27 +186,7 @@ def _store_filings_and_metrics(db: Session, company: Company) -> tuple[int, int,
     filings = build_10k_list_from_submission(sub) if sub else []
     if not filings:
         filings = fetch_ir_filing_fallback_urls(company.ticker.upper())
-    for item in filings:
-        exists = (
-            db.query(Filing)
-            .filter(Filing.company_id == company.id, Filing.fiscal_year == item["fiscal_year"], Filing.filing_type == "10-K")
-            .first()
-        )
-        if exists:
-            continue
-        db.add(
-            Filing(
-                company_id=company.id,
-                filing_type=item["filing_type"],
-                filing_date=item["filing_date"],
-                fiscal_year=item["fiscal_year"],
-                source=item["source"],
-                url=item["url"],
-                raw_text=item.get("raw_text"),
-            )
-        )
-
-    db.commit()
+    sync_annual_filings_for_company(db, company, filings)
     # Financial metrics are fetched from SEC and persisted by the recommendation engine
     # (_ensure_metric_rows). Never write fallback/synthetic data to the DB here.
     return len(filings), 0, False

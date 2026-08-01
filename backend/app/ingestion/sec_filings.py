@@ -7,12 +7,13 @@ from urllib.parse import quote
 import requests
 from sqlalchemy.orm import Session
 
-from app.models import Company
+from app.models import Company, Filing
 
 SEC_TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 SEC_COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 SEC_ARCHIVES_BASE = "https://www.sec.gov/Archives/edgar/data"
+ANNUAL_10K_FORMS = {"10-K", "10-K/A"}
 
 
 def sec_edgar_company_search_url(ticker: str) -> str:
@@ -154,7 +155,8 @@ def build_10k_list_from_submission(submission: dict[str, Any]) -> list[dict]:
 
     output: list[dict] = []
     for i, form in enumerate(forms):
-        if form != "10-K":
+        form_name = str(form or "").upper().strip()
+        if form_name not in ANNUAL_10K_FORMS:
             continue
 
         report_date = report_dates[i] or filing_dates[i]
@@ -183,6 +185,68 @@ def build_10k_list_from_submission(submission: dict[str, Any]) -> list[dict]:
             break
 
     return output
+
+
+def _has_filing_text(value: Any) -> bool:
+    return bool(str(value or "").strip())
+
+
+def _refresh_existing_filing(existing: Filing, item: dict[str, Any]) -> bool:
+    """Refresh stale placeholder filings without wiping good text on transient SEC failures."""
+    new_text = item.get("raw_text")
+    has_new_text = _has_filing_text(new_text)
+    if not has_new_text:
+        return False
+
+    new_date = item["filing_date"]
+    is_newer = new_date > existing.filing_date
+    backfills_text = not _has_filing_text(existing.raw_text)
+    prefers_sec = item.get("source") == "sec" and existing.source != "sec"
+
+    if not (is_newer or backfills_text or prefers_sec):
+        return False
+
+    existing.filing_date = new_date
+    existing.source = item["source"]
+    existing.url = item["url"]
+    existing.raw_text = str(new_text)
+    existing.parsed_json = None
+    return True
+
+
+def sync_annual_filings_for_company(db: Session, company: Company, filings: list[dict[str, Any]]) -> tuple[int, int]:
+    """
+    Insert annual filing rows or refresh stale ones.
+
+    Rows are keyed by company/year/canonical 10-K type so a later 10-K/A replaces
+    an older original filing for downstream keyword and risk analysis.
+    """
+    inserted = 0
+    updated = 0
+    for item in filings:
+        existing = (
+            db.query(Filing)
+            .filter(Filing.company_id == company.id, Filing.fiscal_year == item["fiscal_year"], Filing.filing_type == "10-K")
+            .first()
+        )
+        if existing:
+            if _refresh_existing_filing(existing, item):
+                updated += 1
+            continue
+        db.add(
+            Filing(
+                company_id=company.id,
+                filing_type="10-K",
+                filing_date=item["filing_date"],
+                fiscal_year=item["fiscal_year"],
+                source=item["source"],
+                url=item["url"],
+                raw_text=item.get("raw_text"),
+            )
+        )
+        inserted += 1
+    db.commit()
+    return inserted, updated
 
 
 def fetch_last_3y_10k_urls(ticker: str) -> list[dict]:
