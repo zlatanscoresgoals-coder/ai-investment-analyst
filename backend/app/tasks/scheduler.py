@@ -13,8 +13,9 @@ from app.ingestion.sec_filings import (
     build_10k_list_from_submission,
     get_submission_json_for_ticker,
     merge_sec_company_profile,
+    sync_annual_filings_for_company,
 )
-from app.models import Company, Filing
+from app.models import Company
 from app.recommendations.engine import run_recommendation_for_company
 from app.universe import get_candidate_companies, get_candidate_tickers
 
@@ -57,26 +58,7 @@ def _fetch_filings_and_metrics(db, company):
     filings = build_10k_list_from_submission(sub) if sub else []
     if not filings:
         filings = fetch_ir_filing_fallback_urls(company.ticker.upper())
-    for item in filings:
-        exists = (
-            db.query(Filing)
-            .filter(Filing.company_id == company.id, Filing.fiscal_year == item["fiscal_year"], Filing.filing_type == "10-K")
-            .first()
-        )
-        if exists:
-            continue
-        db.add(
-            Filing(
-                company_id=company.id,
-                filing_type=item["filing_type"],
-                filing_date=item["filing_date"],
-                fiscal_year=item["fiscal_year"],
-                source=item["source"],
-                url=item["url"],
-                raw_text=item.get("raw_text"),
-            )
-        )
-    db.commit()
+    sync_annual_filings_for_company(db, company, filings)
 
 
 def execute_full_pipeline(db, *, pool: str = "candidates") -> dict[str, Any]:
