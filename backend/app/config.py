@@ -1,11 +1,17 @@
+from pathlib import Path
+
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+_BACKEND_DIR = Path(__file__).resolve().parents[1]
+_DEFAULT_DATABASE_URL = f"sqlite:///{(_BACKEND_DIR / 'investment_analyst.db').as_posix()}"
 
 
 class Settings(BaseSettings):
     app_name: str = "AI Investment Analyst"
     app_env: str = "dev"
-    database_url: str = "sqlite:///./investment_analyst.db"
+    database_url: str = _DEFAULT_DATABASE_URL
     recommendation_threshold: float = 75.0
     recommendation_hysteresis_buffer: float = 4.0
     recommendation_hysteresis_minutes: int = 1440
