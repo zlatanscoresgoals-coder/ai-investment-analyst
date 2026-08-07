@@ -1127,10 +1127,24 @@ def api_earnings(db: Session = Depends(get_db)):
     from app.opportunities.earnings import scan_earnings
     from app.opportunities.universe import SCREEN_UNIVERSE
     meridian_scores: dict[str, float] = {}
+
+    latest_per_company = (
+        db.query(
+            Recommendation.company_id.label("company_id"),
+            func.max(Recommendation.as_of).label("latest_as_of"),
+        )
+        .group_by(Recommendation.company_id)
+        .subquery()
+    )
     recs = (
         db.query(Recommendation, Company)
         .join(Company, Company.id == Recommendation.company_id)
-        .order_by(Recommendation.as_of.desc())
+        .join(
+            latest_per_company,
+            (latest_per_company.c.company_id == Recommendation.company_id)
+            & (latest_per_company.c.latest_as_of == Recommendation.as_of),
+        )
+        .filter(Company.ticker.in_(SCREEN_UNIVERSE))
         .all()
     )
     seen: set[str] = set()
