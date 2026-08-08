@@ -14,6 +14,13 @@ SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 SEC_COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 SEC_ARCHIVES_BASE = "https://www.sec.gov/Archives/edgar/data"
 
+# SEC's ticker index currently maps XOM to a newer holding-company registrant
+# with no usable annual operating history; the public company filer is the
+# legacy Exxon Mobil Corporation CIK.
+SEC_TICKER_CIK_OVERRIDES = {
+    "XOM": "0000034088",
+}
+
 
 def sec_edgar_company_search_url(ticker: str) -> str:
     """Human-readable SEC EDGAR company search (filings, including 10-K)."""
@@ -41,11 +48,14 @@ def _get_text(url: str) -> str:
 
 
 def get_cik_for_ticker(ticker: str) -> Optional[str]:
+    target = ticker.upper().strip()
+    override = SEC_TICKER_CIK_OVERRIDES.get(target)
+    if override:
+        return override
     try:
         data = _get_json(SEC_TICKER_URL)
     except Exception:
         return None
-    target = ticker.upper().strip()
     for item in data.values():
         if item.get("ticker", "").upper() == target:
             return str(item["cik_str"]).zfill(10)
