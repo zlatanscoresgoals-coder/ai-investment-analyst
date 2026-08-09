@@ -12,6 +12,7 @@ from app.news.investor_news import fetch_investor_news
 from app.news.news_risk import headline_news_risk_score
 from app.risk.company_risks import build_company_risk_json
 from app.scoring.blender import WEIGHTS, score_all
+from app.universe import resolve_sector_for_display
 
 
 class _MetricProxy:
@@ -97,7 +98,7 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
             }
         )
 
-    sector = getattr(company, "sector", None)
+    sector = resolve_sector_for_display(company.ticker, getattr(company, "sector", None))
 
     raw_metrics = {
         "revenue": latest.revenue,
@@ -298,7 +299,7 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
     risk_json = build_company_risk_json(
         company_name=company.name,
         ticker=company.ticker,
-        sector=getattr(company, "sector", None),
+        sector=sector,
         latest=latest,
         revenue_growth=revenue_growth,
         trend_rows=trend_rows,

@@ -62,7 +62,13 @@ def sector_fallback_map() -> dict[str, str]:
 
 
 def resolve_sector_for_display(ticker: str, stored_sector: Optional[str]) -> Optional[str]:
+    t = (ticker or "").upper().strip()
+    # The JSON universe carries investor-facing sector labels used by the
+    # scoring and risk layers. Prefer it over coarse SEC SIC buckets such as
+    # "Manufacturing" that get stored during metadata refreshes.
+    universe_sector = sector_fallback_map().get(t)
+    if universe_sector:
+        return universe_sector
     if stored_sector and str(stored_sector).strip():
         return str(stored_sector).strip()
-    t = (ticker or "").upper().strip()
-    return sector_fallback_map().get(t)
+    return None

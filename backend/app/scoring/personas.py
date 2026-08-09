@@ -50,7 +50,7 @@ def _sector_key(sector: Optional[str]) -> str:
         return "tech"
     if any(k in s for k in ("pharma", "biotech", "health", "medical")):
         return "health"
-    if any(k in s for k in ("energy", "oil", "gas", "mining", "material")):
+    if any(k in s for k in ("energy", "oil", "gas", "mining")):
         return "energy"
     if any(k in s for k in ("retail", "consumer", "food", "beverage", "apparel")):
         return "consumer"
