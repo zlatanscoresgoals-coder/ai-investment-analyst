@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from threading import Lock
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ from app.recommendations.engine import run_recommendation_for_company
 from app.universe import get_candidate_companies, get_candidate_tickers
 
 _scheduler: Optional[BackgroundScheduler] = None
+_pipeline_lock = Lock()
 _state: dict[str, Any] = {
     "last_run_at": None,
     "last_status": "never",
@@ -31,7 +33,7 @@ def _run_full_job():
     try:
         result = execute_full_pipeline(db, pool="candidates")
         _state["last_run_at"] = datetime.utcnow().isoformat()
-        _state["last_status"] = "ok"
+        _state["last_status"] = "skipped" if result.get("skipped") else "ok"
         _state["last_message"] = result["message"]
     except Exception as exc:
         _state["last_run_at"] = datetime.utcnow().isoformat()
@@ -80,6 +82,21 @@ def _fetch_filings_and_metrics(db, company):
 
 
 def execute_full_pipeline(db, *, pool: str = "candidates") -> dict[str, Any]:
+    if not _pipeline_lock.acquire(blocking=False):
+        return {
+            "message": "Full pipeline run skipped because another run is already in progress.",
+            "analyzed": 0,
+            "company_count": 0,
+            "failures": [],
+            "skipped": True,
+        }
+    try:
+        return _execute_full_pipeline_unlocked(db, pool=pool)
+    finally:
+        _pipeline_lock.release()
+
+
+def _execute_full_pipeline_unlocked(db, *, pool: str = "candidates") -> dict[str, Any]:
     _sync_universe(db)
     q = db.query(Company).order_by(Company.id)
     p = (pool or "candidates").strip().lower()
