@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 import uuid
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
@@ -13,25 +16,64 @@ from sqlalchemy.orm import Session
 from app.market.quotes import fetch_live_quote
 from app.models import Company
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - deployed target is Linux, kept for local portability.
+    fcntl = None
+
 PORTFOLIO_PATH = Path(__file__).resolve().parent.parent / "data" / "portfolio.json"
+_PORTFOLIO_THREAD_LOCK = threading.RLock()
 
 
 def _ensure_parent() -> None:
     PORTFOLIO_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
-def load_positions() -> list[dict[str, Any]]:
+def _portfolio_lock_path() -> Path:
+    return PORTFOLIO_PATH.with_name(f"{PORTFOLIO_PATH.name}.lock")
+
+
+@contextmanager
+def _portfolio_lock():
     _ensure_parent()
+    with _PORTFOLIO_THREAD_LOCK:
+        with _portfolio_lock_path().open("a+", encoding="utf-8") as lock_file:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _read_positions_unlocked() -> list[dict[str, Any]]:
     if not PORTFOLIO_PATH.exists():
-        PORTFOLIO_PATH.write_text(json.dumps({"positions": []}, indent=2), encoding="utf-8")
+        _write_positions_unlocked([])
     data = json.loads(PORTFOLIO_PATH.read_text(encoding="utf-8"))
     rows = data.get("positions")
     return list(rows) if isinstance(rows, list) else []
 
 
-def save_positions(positions: list[dict[str, Any]]) -> None:
+def _write_positions_unlocked(positions: list[dict[str, Any]]) -> None:
     _ensure_parent()
-    PORTFOLIO_PATH.write_text(json.dumps({"positions": positions}, indent=2), encoding="utf-8")
+    tmp_path = PORTFOLIO_PATH.with_name(f".{PORTFOLIO_PATH.name}.{uuid.uuid4().hex}.tmp")
+    payload = json.dumps({"positions": positions}, indent=2)
+    with tmp_path.open("w", encoding="utf-8") as fh:
+        fh.write(payload)
+        fh.flush()
+        os.fsync(fh.fileno())
+    tmp_path.replace(PORTFOLIO_PATH)
+
+
+def load_positions() -> list[dict[str, Any]]:
+    with _portfolio_lock():
+        return _read_positions_unlocked()
+
+
+def save_positions(positions: list[dict[str, Any]]) -> None:
+    with _portfolio_lock():
+        _write_positions_unlocked(positions)
 
 
 def _parse_iso_date(s: str) -> date:
@@ -66,20 +108,22 @@ def add_position(
         "shares": float(shares),
         "notes": (notes or "").strip(),
     }
-    positions = load_positions()
-    positions.append(pos)
-    save_positions(positions)
+    with _portfolio_lock():
+        positions = _read_positions_unlocked()
+        positions.append(pos)
+        _write_positions_unlocked(positions)
     return pos
 
 
 def delete_position(position_id: str) -> bool:
-    positions = load_positions()
-    n = len(positions)
-    positions = [p for p in positions if str(p.get("id")) != position_id]
-    if len(positions) == n:
-        return False
-    save_positions(positions)
-    return True
+    with _portfolio_lock():
+        positions = _read_positions_unlocked()
+        n = len(positions)
+        positions = [p for p in positions if str(p.get("id")) != position_id]
+        if len(positions) == n:
+            return False
+        _write_positions_unlocked(positions)
+        return True
 
 
 def _enrich_one(p: dict[str, Any]) -> dict[str, Any]:
