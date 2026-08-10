@@ -120,6 +120,7 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
         historical_window.append(
             {
                 "fiscal_year": hfy,
+                "revenue": revenue_for_fy(us_gaap, hfy, rev_tag),
                 "fcf": _fcf_for_fy(hfy),
                 "net_income": waterfall_money(us_gaap, NET_INCOME_TAGS, hfy),
                 "dividends_paid": div_h,
