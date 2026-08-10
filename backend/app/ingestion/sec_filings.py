@@ -225,6 +225,11 @@ def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
         return []
 
     _GROSS_PROFIT_TAGS = ("GrossProfit",)
+    _COST_OF_REVENUE_TAGS = (
+        "CostOfRevenue",
+        "CostOfGoodsAndServicesSold",
+        "CostOfGoodsSold",
+    )
     _CURRENT_ASSETS_TAGS = ("AssetsCurrent",)
     _CURRENT_LIAB_TAGS = ("LiabilitiesCurrent",)
     _EBITDA_DIRECT_TAGS = (
@@ -251,9 +256,21 @@ def fetch_financial_metrics_last_3y(ticker: str) -> list[dict[str, Any]]:
         v = _safe_div(num, denom)
         return v * 100.0 if v is not None else None
 
+    def _gross_profit_for_fy(revenue: Any, year: int) -> Optional[float]:
+        gp = waterfall_money(us_gaap, _GROSS_PROFIT_TAGS, year)
+        if gp is not None:
+            return gp
+        cost = waterfall_money(us_gaap, _COST_OF_REVENUE_TAGS, year)
+        try:
+            if revenue is not None and cost is not None:
+                return float(revenue) - abs(float(cost))
+        except (TypeError, ValueError):
+            return None
+        return None
+
     for year in years:
         rev = waterfall_money(us_gaap, (rev_tag,), year)
-        gp = waterfall_money(us_gaap, _GROSS_PROFIT_TAGS, year)
+        gp = _gross_profit_for_fy(rev, year)
         op_inc = waterfall_money(us_gaap, OPERATING_INCOME_TAGS, year)
         ni = waterfall_money(us_gaap, NET_INCOME_TAGS, year)
         cfo_val = waterfall_money(us_gaap, CFO_TAGS, year)
