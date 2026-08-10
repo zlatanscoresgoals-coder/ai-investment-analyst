@@ -48,9 +48,10 @@ def _ensure_metric_rows(db: Session, company: Company) -> list:
                 .first()
             )
             if existing:
-                # Update every field in-place so we pick up restated/amended values.
+                # Update restated/amended values without letting partial SEC
+                # responses erase previously populated metrics.
                 for field, val in m.items():
-                    if field != "fiscal_year":
+                    if field != "fiscal_year" and val is not None:
                         setattr(existing, field, val)
             else:
                 db.add(FinancialMetric(company_id=company.id, **m))
