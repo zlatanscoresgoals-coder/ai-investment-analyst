@@ -7,6 +7,7 @@ All data from yfinance (free). No paid APIs.
 from __future__ import annotations
 
 import logging
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -14,6 +15,22 @@ from typing import Any, Optional
 from app.opportunities.universe import SECTOR_ETFS
 
 logger = logging.getLogger(__name__)
+
+
+def _finite_price(value: Any) -> Optional[float]:
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(price) or price <= 0:
+        return None
+    return price
+
+
+def _clean_closes(closes: Optional[list[Any]]) -> list[float]:
+    if not closes:
+        return []
+    return [price for value in closes if (price := _finite_price(value)) is not None]
 
 
 def _fetch_history(symbol: str, days: int = 300) -> Optional[list[float]]:
@@ -27,13 +44,17 @@ def _fetch_history(symbol: str, days: int = 300) -> Optional[list[float]]:
         hist = yf.Ticker(symbol).history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"))
         if hist is None or len(hist) < 20:
             return None
-        return hist["Close"].tolist()
+        closes = _clean_closes(hist["Close"].tolist())
+        if len(closes) < 20:
+            return None
+        return closes
     except Exception as exc:
         logger.debug("regime fetch %s: %s", symbol, exc)
         return None
 
 
 def _sma(closes: list[float], period: int) -> Optional[float]:
+    closes = _clean_closes(closes)
     if len(closes) < period:
         return None
     return sum(closes[-period:]) / period
@@ -45,7 +66,7 @@ def _pct_above_200ma(universe: list[str]) -> Optional[float]:
     total = 0
 
     def _check(ticker: str) -> Optional[bool]:
-        closes = _fetch_history(ticker, days=300)
+        closes = _clean_closes(_fetch_history(ticker, days=300))
         if closes is None or len(closes) < 200:
             return None
         ma200 = sum(closes[-200:]) / 200
@@ -69,8 +90,8 @@ def _sector_performance() -> list[dict[str, Any]]:
     results = []
 
     def _calc(symbol: str) -> Optional[dict[str, Any]]:
-        closes = _fetch_history(symbol, days=65)
-        if closes is None or len(closes) < 22:
+        closes = _clean_closes(_fetch_history(symbol, days=65))
+        if len(closes) < 22:
             return None
         ret_1m = (closes[-1] / closes[-22] - 1.0) * 100.0
         ret_3m = None
@@ -96,11 +117,11 @@ def _sector_performance() -> list[dict[str, Any]]:
 
 def scan_regime(universe: list[str]) -> dict[str, Any]:
     # SPY analysis
-    spy_closes = _fetch_history("SPY", days=300)
+    spy_closes = _clean_closes(_fetch_history("SPY", days=300))
     spy_current = spy_closes[-1] if spy_closes else None
     spy_ma50 = _sma(spy_closes, 50) if spy_closes else None
     spy_ma200 = _sma(spy_closes, 200) if spy_closes else None
-    spy_above_200 = (spy_current > spy_ma200) if spy_current and spy_ma200 else None
+    spy_above_200 = (spy_current > spy_ma200) if spy_current is not None and spy_ma200 is not None else None
 
     # Golden/death cross detection
     cross_signal = None
@@ -114,14 +135,15 @@ def scan_regime(universe: list[str]) -> dict[str, Any]:
     trend = "sideways"
     if spy_closes and len(spy_closes) >= 20:
         recent_20 = spy_closes[-20:]
-        slope = (recent_20[-1] - recent_20[0]) / recent_20[0] * 100
-        if slope > 2:
-            trend = "uptrend"
-        elif slope < -2:
-            trend = "downtrend"
+        if recent_20[0] > 0:
+            slope = (recent_20[-1] - recent_20[0]) / recent_20[0] * 100
+            if slope > 2:
+                trend = "uptrend"
+            elif slope < -2:
+                trend = "downtrend"
 
     # VIX
-    vix_closes = _fetch_history("^VIX", days=30)
+    vix_closes = _clean_closes(_fetch_history("^VIX", days=30))
     vix_current = round(vix_closes[-1], 2) if vix_closes else None
     vix_label = "unknown"
     if vix_current is not None:
@@ -138,7 +160,7 @@ def scan_regime(universe: list[str]) -> dict[str, Any]:
     breadth = _pct_above_200ma(universe)
 
     # Credit proxy: XLF vs SPY relative performance (1 month)
-    xlf_closes = _fetch_history("XLF", days=30)
+    xlf_closes = _clean_closes(_fetch_history("XLF", days=30))
     credit_signal = None
     if xlf_closes and spy_closes and len(xlf_closes) >= 22 and len(spy_closes) >= 22:
         xlf_ret = (xlf_closes[-1] / xlf_closes[-22] - 1.0) * 100.0
@@ -201,9 +223,9 @@ def scan_regime(universe: list[str]) -> dict[str, Any]:
         "favored_strategy": favored,
         "overweight": overweight,
         "underweight": underweight,
-        "spy_current": round(spy_current, 2) if spy_current else None,
-        "spy_ma50": round(spy_ma50, 2) if spy_ma50 else None,
-        "spy_ma200": round(spy_ma200, 2) if spy_ma200 else None,
+        "spy_current": round(spy_current, 2) if spy_current is not None else None,
+        "spy_ma50": round(spy_ma50, 2) if spy_ma50 is not None else None,
+        "spy_ma200": round(spy_ma200, 2) if spy_ma200 is not None else None,
         "spy_above_200ma": spy_above_200,
         "cross_signal": cross_signal,
         "trend": trend,

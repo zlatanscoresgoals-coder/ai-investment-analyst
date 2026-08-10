@@ -9,11 +9,22 @@ Uses only yfinance (free).
 from __future__ import annotations
 
 import logging
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _finite_float(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
 
 
 def _fetch_earnings(ticker: str) -> Optional[dict[str, Any]]:
@@ -27,8 +38,8 @@ def _fetch_earnings(ticker: str) -> Optional[dict[str, Any]]:
 
         name = info.get("shortName") or info.get("longName") or ticker
         sector = info.get("sector") or ""
-        current_price = info.get("currentPrice") or info.get("regularMarketPrice")
-        target_price = info.get("targetMeanPrice")
+        current_price = _finite_float(info.get("currentPrice")) or _finite_float(info.get("regularMarketPrice"))
+        target_price = _finite_float(info.get("targetMeanPrice"))
 
         # Earnings date(s) from calendar
         cal = t.calendar
@@ -70,42 +81,42 @@ def _fetch_earnings(ticker: str) -> Optional[dict[str, Any]]:
 
         if earnings_hist is not None and hasattr(earnings_hist, "iterrows"):
             for _, row in earnings_hist.tail(4).iterrows():
-                actual = row.get("epsActual")
-                est = row.get("epsEstimate")
-                surprise_pct = row.get("surprisePercent")
+                actual = _finite_float(row.get("epsActual"))
+                est = _finite_float(row.get("epsEstimate"))
+                surprise_pct = _finite_float(row.get("surprisePercent"))
                 if actual is not None and est is not None:
-                    beat = float(actual) >= float(est)
+                    beat = actual >= est
                     if beat:
                         beats += 1
                     else:
                         misses += 1
                     surprise_history.append({
                         "quarter": str(row.get("quarter", ""))[:10] if row.get("quarter") is not None else None,
-                        "actual": float(actual) if actual is not None else None,
-                        "estimate": float(est) if est is not None else None,
-                        "surprise_pct": round(float(surprise_pct) * 100, 2) if surprise_pct is not None else None,
+                        "actual": actual,
+                        "estimate": est,
+                        "surprise_pct": round(surprise_pct * 100, 2) if surprise_pct is not None else None,
                         "beat": beat,
                     })
         elif isinstance(earnings_hist, dict):
             for qtr, data in list(earnings_hist.items())[-4:]:
-                actual = data.get("epsActual") if isinstance(data, dict) else None
-                est = data.get("epsEstimate") if isinstance(data, dict) else None
+                actual = _finite_float(data.get("epsActual")) if isinstance(data, dict) else None
+                est = _finite_float(data.get("epsEstimate")) if isinstance(data, dict) else None
                 if actual is not None and est is not None:
-                    beat = float(actual) >= float(est)
+                    beat = actual >= est
                     if beat:
                         beats += 1
                     else:
                         misses += 1
                     surprise_history.append({
                         "quarter": str(qtr),
-                        "actual": float(actual),
-                        "estimate": float(est),
-                        "surprise_pct": round((float(actual) - float(est)) / abs(float(est)) * 100, 2) if float(est) != 0 else None,
+                        "actual": actual,
+                        "estimate": est,
+                        "surprise_pct": round((actual - est) / abs(est) * 100, 2) if est != 0 else None,
                         "beat": beat,
                     })
 
         # Consensus EPS estimate
-        eps_estimate = info.get("forwardEps")
+        eps_estimate = _finite_float(info.get("forwardEps"))
 
         # Target vs current
         upside_pct = None
@@ -118,9 +129,9 @@ def _fetch_earnings(ticker: str) -> Optional[dict[str, Any]]:
             "sector": sector,
             "earnings_date": earnings_date,
             "earnings_time": earnings_time,
-            "current_price": round(float(current_price), 2) if current_price else None,
-            "eps_estimate": round(float(eps_estimate), 2) if eps_estimate else None,
-            "target_price": round(float(target_price), 2) if target_price else None,
+            "current_price": round(current_price, 2) if current_price is not None else None,
+            "eps_estimate": round(eps_estimate, 2) if eps_estimate is not None else None,
+            "target_price": round(target_price, 2) if target_price is not None else None,
             "upside_pct": upside_pct,
             "surprise_history": surprise_history,
             "beats": beats,
