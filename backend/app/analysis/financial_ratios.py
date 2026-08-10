@@ -9,11 +9,10 @@ def compute_financial_ratios(
     ratios = dict(latest_metrics)
 
     # Year-over-year revenue growth
-    if prior_metrics and prior_metrics.get("revenue"):
-        growth = (
-            (latest_metrics.get("revenue", 0) - prior_metrics["revenue"])
-            / prior_metrics["revenue"]
-        ) * 100
+    latest_revenue = latest_metrics.get("revenue")
+    prior_revenue = prior_metrics.get("revenue") if prior_metrics else None
+    if latest_revenue is not None and prior_revenue:
+        growth = ((latest_revenue - prior_revenue) / prior_revenue) * 100
         ratios["revenue_growth_pct"] = growth
     else:
         ratios["revenue_growth_pct"] = 0.0
