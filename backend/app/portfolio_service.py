@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -14,24 +15,45 @@ from app.market.quotes import fetch_live_quote
 from app.models import Company
 
 PORTFOLIO_PATH = Path(__file__).resolve().parent.parent / "data" / "portfolio.json"
+LOGGER = logging.getLogger(__name__)
 
 
 def _ensure_parent() -> None:
     PORTFOLIO_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
+def _write_positions_file(positions: list[dict[str, Any]]) -> None:
+    _ensure_parent()
+    tmp_path = PORTFOLIO_PATH.with_name(f".{PORTFOLIO_PATH.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp_path.write_text(json.dumps({"positions": positions}, indent=2), encoding="utf-8")
+        tmp_path.replace(PORTFOLIO_PATH)
+    finally:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            LOGGER.warning("Failed to clean up portfolio temp file %s", tmp_path)
+
+
 def load_positions() -> list[dict[str, Any]]:
     _ensure_parent()
     if not PORTFOLIO_PATH.exists():
-        PORTFOLIO_PATH.write_text(json.dumps({"positions": []}, indent=2), encoding="utf-8")
-    data = json.loads(PORTFOLIO_PATH.read_text(encoding="utf-8"))
+        _write_positions_file([])
+    try:
+        data = json.loads(PORTFOLIO_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        LOGGER.error("Portfolio store %s contains invalid JSON; returning an empty portfolio.", PORTFOLIO_PATH)
+        return []
+    if not isinstance(data, dict):
+        LOGGER.error("Portfolio store %s has unexpected JSON shape; returning an empty portfolio.", PORTFOLIO_PATH)
+        return []
     rows = data.get("positions")
     return list(rows) if isinstance(rows, list) else []
 
 
 def save_positions(positions: list[dict[str, Any]]) -> None:
-    _ensure_parent()
-    PORTFOLIO_PATH.write_text(json.dumps({"positions": positions}, indent=2), encoding="utf-8")
+    _write_positions_file(positions)
 
 
 def _parse_iso_date(s: str) -> date:
