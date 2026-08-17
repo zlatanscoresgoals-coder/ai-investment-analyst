@@ -1,5 +1,14 @@
-from pydantic import AliasChoices, Field
+from typing import Any
+
+from pydantic import AliasChoices, Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+_BOOL_FIELD_DEFAULTS = {
+    "auto_refresh_enabled": True,
+    "auth_enabled": False,
+    "critical_news_strict_outlets": True,
+}
 
 
 class Settings(BaseSettings):
@@ -64,6 +73,13 @@ class Settings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    @field_validator(*_BOOL_FIELD_DEFAULTS.keys(), mode="before")
+    @classmethod
+    def _empty_bool_env_uses_default(cls, value: Any, info: ValidationInfo) -> Any:
+        if isinstance(value, str) and value.strip() == "":
+            return _BOOL_FIELD_DEFAULTS[info.field_name]
+        return value
 
 
 settings = Settings()
