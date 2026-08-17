@@ -233,11 +233,8 @@ def _load_portfolio_html() -> str:
 
 
 def _is_auth_path(path: str) -> bool:
-    open_paths = {"/login", "/logout"}
+    open_paths = {"/login", "/logout", "/health/freshness", "/health/features"}
     if path in open_paths:
-        return True
-    # Liveness / quote diagnostics (no secrets; helps verify Railway env keys and outbound HTTP).
-    if path.startswith("/health/"):
         return True
     if path.startswith("/docs") or path.startswith("/openapi") or path.startswith("/redoc"):
         return False
