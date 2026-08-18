@@ -148,8 +148,6 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
         out["ebitda"] = ebitda_direct
     elif out["operating_income"] is not None and out["depreciation"] is not None:
         out["ebitda"] = float(out["operating_income"]) + abs(float(out["depreciation"]))
-    elif out["operating_income"] is not None:
-        out["ebitda"] = float(out["operating_income"])
     else:
         out["ebitda"] = None
 
