@@ -157,11 +157,22 @@ def build_10k_list_from_submission(submission: dict[str, Any]) -> list[dict]:
         if form != "10-K":
             continue
 
-        report_date = report_dates[i] or filing_dates[i]
-        fiscal_year = datetime.strptime(report_date, "%Y-%m-%d").year
-        accession_raw = accessions[i]
-        accession_no_dash = accession_raw.replace("-", "")
-        filing_url = f"{SEC_ARCHIVES_BASE}/{cik_no_zero}/{accession_no_dash}/{primary_docs[i]}"
+        filing_date_raw = filing_dates[i] if i < len(filing_dates) else None
+        report_date_raw = report_dates[i] if i < len(report_dates) else None
+        accession_raw = accessions[i] if i < len(accessions) else None
+        primary_doc = primary_docs[i] if i < len(primary_docs) else None
+        if not (filing_date_raw and (report_date_raw or filing_date_raw) and accession_raw and primary_doc):
+            continue
+
+        try:
+            report_date = datetime.strptime(str(report_date_raw or filing_date_raw), "%Y-%m-%d")
+            filing_date = datetime.strptime(str(filing_date_raw), "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            continue
+
+        fiscal_year = report_date.year
+        accession_no_dash = str(accession_raw).replace("-", "")
+        filing_url = f"{SEC_ARCHIVES_BASE}/{cik_no_zero}/{accession_no_dash}/{primary_doc}"
 
         filing_text = ""
         try:
@@ -173,7 +184,7 @@ def build_10k_list_from_submission(submission: dict[str, Any]) -> list[dict]:
             {
                 "filing_type": "10-K",
                 "fiscal_year": fiscal_year,
-                "filing_date": datetime.strptime(filing_dates[i], "%Y-%m-%d").date(),
+                "filing_date": filing_date,
                 "url": filing_url,
                 "source": "sec",
                 "raw_text": filing_text,
