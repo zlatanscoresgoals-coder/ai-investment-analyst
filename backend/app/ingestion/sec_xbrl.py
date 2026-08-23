@@ -269,25 +269,31 @@ def collect_fiscal_years_from_revenue(us_gaap: dict[str, Any]) -> tuple[Optional
     matching tag wins even if it only has stale data from years ago.
     """
     best_tag: Optional[str] = None
-    best_max_year: int = 0
     best_years: list[int] = []
+    best_key: tuple[int, int, float] = (0, 0, 0.0)
 
     for tag in REVENUE_TAGS:
         obj = us_gaap.get(tag)
         if not isinstance(obj, dict):
             continue
         years: set[int] = set()
+        winners_by_year: dict[int, dict[str, Any]] = {}
         for uk in ("USD", "usd"):
             raw = obj.get("units", {}).get(uk)
             if not raw or not isinstance(raw, list):
                 continue
             w = _annual_winners_for_entries(raw)
             years.update(w.keys())
+            winners_by_year.update(w)
         if not years:
             continue
         max_year = max(years)
-        if max_year > best_max_year:
-            best_max_year = max_year
+        latest = winners_by_year.get(max_year) or {}
+        latest_val = latest.get("val")
+        latest_amount = abs(float(latest_val)) if isinstance(latest_val, (int, float)) else 0.0
+        candidate_key = (max_year, len(years), latest_amount)
+        if candidate_key > best_key:
+            best_key = candidate_key
             best_tag = tag
             best_years = sorted(years, reverse=True)
 

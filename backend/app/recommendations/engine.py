@@ -54,7 +54,9 @@ def _ensure_metric_rows(db: Session, company: Company) -> list:
                         setattr(existing, field, val)
             else:
                 db.add(FinancialMetric(company_id=company.id, **m))
-        db.commit()
+        # Make pending inserts visible to the query below, but keep the refresh atomic
+        # with the recommendation/persona writes that happen later in this run.
+        db.flush()
 
     rows = (
         db.query(FinancialMetric)
