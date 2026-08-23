@@ -9,11 +9,22 @@ Uses only yfinance (free).
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import math
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+SCAN_TIMEOUT_SECONDS = 45.0
+
+
+def _finite_float(value: Any) -> Optional[float]:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
 
 
 def _fetch_earnings(ticker: str) -> Optional[dict[str, Any]]:
@@ -138,7 +149,7 @@ def _assign_flag(item: dict[str, Any], meridian_scores: dict[str, float]) -> dic
     misses = item.get("misses", 0)
     total = item.get("total_quarters", 0)
     ticker = item["ticker"]
-    meridian = meridian_scores.get(ticker)
+    meridian = _finite_float(meridian_scores.get(ticker))
 
     item["meridian_score"] = round(meridian, 1) if meridian is not None else None
 
@@ -170,12 +181,21 @@ def scan_earnings(universe: list[str], meridian_scores: dict[str, float] | None 
         meridian_scores = {}
 
     results: list[dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {pool.submit(_fetch_earnings, t): t for t in universe}
-        for fut in as_completed(futures):
+    pool = ThreadPoolExecutor(max_workers=8)
+    futures = {pool.submit(_fetch_earnings, t): t for t in universe}
+    try:
+        for fut in as_completed(futures, timeout=SCAN_TIMEOUT_SECONDS):
             r = fut.result()
             if r is not None:
                 results.append(_assign_flag(r, meridian_scores))
+    except TimeoutError:
+        pending = sum(1 for fut in futures if not fut.done())
+        logger.warning("earnings scan timed out with %d unfinished yfinance fetches", pending)
+    finally:
+        for fut in futures:
+            if not fut.done():
+                fut.cancel()
+        pool.shutdown(wait=False, cancel_futures=True)
 
     # Sort: green first, then amber, then red; within each group by days_until
     flag_order = {"green": 0, "amber": 1, "red": 2}

@@ -8,11 +8,14 @@ momentum score.  Uses only yfinance (free) for price/volume data.
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+YFINANCE_TIMEOUT_SECONDS = 10
+SCAN_TIMEOUT_SECONDS = 45.0
 
 
 def _compute_rsi(closes: list[float], period: int = 14) -> Optional[float]:
@@ -43,7 +46,11 @@ def _fetch_single(ticker: str) -> Optional[dict[str, Any]]:
         t = yf.Ticker(ticker)
         end = datetime.now()
         start = end - timedelta(days=400)
-        hist = t.history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"))
+        hist = t.history(
+            start=start.strftime("%Y-%m-%d"),
+            end=end.strftime("%Y-%m-%d"),
+            timeout=YFINANCE_TIMEOUT_SECONDS,
+        )
         if hist is None or len(hist) < 60:
             return None
 
@@ -114,12 +121,21 @@ def _rank_score(values: list[float], idx: int, max_pts: float) -> float:
 
 def scan_momentum(universe: list[str], top_n: int = 5) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {pool.submit(_fetch_single, t): t for t in universe}
-        for fut in as_completed(futures):
+    pool = ThreadPoolExecutor(max_workers=8)
+    futures = {pool.submit(_fetch_single, t): t for t in universe}
+    try:
+        for fut in as_completed(futures, timeout=SCAN_TIMEOUT_SECONDS):
             r = fut.result()
             if r is not None:
                 results.append(r)
+    except TimeoutError:
+        pending = sum(1 for fut in futures if not fut.done())
+        logger.warning("momentum scan timed out with %d unfinished yfinance fetches", pending)
+    finally:
+        for fut in futures:
+            if not fut.done():
+                fut.cancel()
+        pool.shutdown(wait=False, cancel_futures=True)
 
     if not results:
         return []
