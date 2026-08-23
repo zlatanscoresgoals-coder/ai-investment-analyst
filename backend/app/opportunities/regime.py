@@ -7,13 +7,16 @@ All data from yfinance (free). No paid APIs.
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from app.opportunities.universe import SECTOR_ETFS
 
 logger = logging.getLogger(__name__)
+
+YFINANCE_TIMEOUT_SECONDS = 10
+SCAN_TIMEOUT_SECONDS = 45.0
 
 
 def _fetch_history(symbol: str, days: int = 300) -> Optional[list[float]]:
@@ -24,7 +27,11 @@ def _fetch_history(symbol: str, days: int = 300) -> Optional[list[float]]:
     try:
         end = datetime.now()
         start = end - timedelta(days=days)
-        hist = yf.Ticker(symbol).history(start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"))
+        hist = yf.Ticker(symbol).history(
+            start=start.strftime("%Y-%m-%d"),
+            end=end.strftime("%Y-%m-%d"),
+            timeout=YFINANCE_TIMEOUT_SECONDS,
+        )
         if hist is None or len(hist) < 20:
             return None
         return hist["Close"].tolist()
@@ -39,6 +46,14 @@ def _sma(closes: list[float], period: int) -> Optional[float]:
     return sum(closes[-period:]) / period
 
 
+def _pct_change(current: Optional[float], previous: Optional[float]) -> Optional[float]:
+    if current is None or previous is None:
+        return None
+    if previous <= 0:
+        return None
+    return (current / previous - 1.0) * 100.0
+
+
 def _pct_above_200ma(universe: list[str]) -> Optional[float]:
     """% of stocks in universe trading above their own 200-day MA."""
     above = 0
@@ -51,14 +66,23 @@ def _pct_above_200ma(universe: list[str]) -> Optional[float]:
         ma200 = sum(closes[-200:]) / 200
         return closes[-1] > ma200
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {pool.submit(_check, t): t for t in universe}
-        for fut in as_completed(futures):
+    pool = ThreadPoolExecutor(max_workers=8)
+    futures = {pool.submit(_check, t): t for t in universe}
+    try:
+        for fut in as_completed(futures, timeout=SCAN_TIMEOUT_SECONDS):
             r = fut.result()
             if r is not None:
                 total += 1
                 if r:
                     above += 1
+    except TimeoutError:
+        pending = sum(1 for fut in futures if not fut.done())
+        logger.warning("regime breadth scan timed out with %d unfinished yfinance fetches", pending)
+    finally:
+        for fut in futures:
+            if not fut.done():
+                fut.cancel()
+        pool.shutdown(wait=False, cancel_futures=True)
 
     if total == 0:
         return None
@@ -72,10 +96,12 @@ def _sector_performance() -> list[dict[str, Any]]:
         closes = _fetch_history(symbol, days=65)
         if closes is None or len(closes) < 22:
             return None
-        ret_1m = (closes[-1] / closes[-22] - 1.0) * 100.0
+        ret_1m = _pct_change(closes[-1], closes[-22])
+        if ret_1m is None:
+            return None
         ret_3m = None
         if len(closes) >= 63:
-            ret_3m = (closes[-1] / closes[-63] - 1.0) * 100.0
+            ret_3m = _pct_change(closes[-1], closes[-63])
         return {
             "symbol": symbol,
             "sector": SECTOR_ETFS.get(symbol, symbol),
@@ -83,12 +109,21 @@ def _sector_performance() -> list[dict[str, Any]]:
             "ret_3m": round(ret_3m, 2) if ret_3m is not None else None,
         }
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        futures = {pool.submit(_calc, s): s for s in SECTOR_ETFS}
-        for fut in as_completed(futures):
+    pool = ThreadPoolExecutor(max_workers=6)
+    futures = {pool.submit(_calc, s): s for s in SECTOR_ETFS}
+    try:
+        for fut in as_completed(futures, timeout=SCAN_TIMEOUT_SECONDS):
             r = fut.result()
             if r is not None:
                 results.append(r)
+    except TimeoutError:
+        pending = sum(1 for fut in futures if not fut.done())
+        logger.warning("sector performance scan timed out with %d unfinished yfinance fetches", pending)
+    finally:
+        for fut in futures:
+            if not fut.done():
+                fut.cancel()
+        pool.shutdown(wait=False, cancel_futures=True)
 
     results.sort(key=lambda r: r["ret_1m"], reverse=True)
     return results
@@ -114,11 +149,12 @@ def scan_regime(universe: list[str]) -> dict[str, Any]:
     trend = "sideways"
     if spy_closes and len(spy_closes) >= 20:
         recent_20 = spy_closes[-20:]
-        slope = (recent_20[-1] - recent_20[0]) / recent_20[0] * 100
-        if slope > 2:
-            trend = "uptrend"
-        elif slope < -2:
-            trend = "downtrend"
+        slope = _pct_change(recent_20[-1], recent_20[0])
+        if slope is not None:
+            if slope > 2:
+                trend = "uptrend"
+            elif slope < -2:
+                trend = "downtrend"
 
     # VIX
     vix_closes = _fetch_history("^VIX", days=30)
@@ -141,9 +177,10 @@ def scan_regime(universe: list[str]) -> dict[str, Any]:
     xlf_closes = _fetch_history("XLF", days=30)
     credit_signal = None
     if xlf_closes and spy_closes and len(xlf_closes) >= 22 and len(spy_closes) >= 22:
-        xlf_ret = (xlf_closes[-1] / xlf_closes[-22] - 1.0) * 100.0
-        spy_ret = (spy_closes[-1] / spy_closes[-22] - 1.0) * 100.0
-        credit_signal = round(xlf_ret - spy_ret, 2)
+        xlf_ret = _pct_change(xlf_closes[-1], xlf_closes[-22])
+        spy_ret = _pct_change(spy_closes[-1], spy_closes[-22])
+        if xlf_ret is not None and spy_ret is not None:
+            credit_signal = round(xlf_ret - spy_ret, 2)
 
     # Sector rotation
     sectors = _sector_performance()
