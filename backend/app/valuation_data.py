@@ -15,6 +15,7 @@ from app.ingestion.sec_xbrl import (
     DIVIDEND_TAGS,
     EBITDA_DIRECT_TAGS,
     EPS_BASIC_TAGS,
+    EPS_DILUTED_TAGS,
     EQUITY_TAGS,
     INCOME_BEFORE_TAX_TAGS,
     INTEREST_EXPENSE_TAGS,
@@ -26,9 +27,11 @@ from app.ingestion.sec_xbrl import (
     collect_fiscal_years_from_revenue,
     effective_tax_rate_pct,
     revenue_for_fy,
+    shares_basic_for_fy,
     shares_outstanding_for_fy,
     total_debt_for_fy,
     waterfall_eps_basic,
+    waterfall_eps_diluted,
     waterfall_money,
 )
 
@@ -153,12 +156,21 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
     else:
         out["ebitda"] = None
 
-    sh = shares_outstanding_for_fy(us_gaap, fy)
+    sh_basic = shares_basic_for_fy(us_gaap, fy)
+    sh_diluted = shares_outstanding_for_fy(us_gaap, fy)
+    eps_basic = waterfall_eps_basic(us_gaap, EPS_BASIC_TAGS, fy)
+    eps_diluted = waterfall_eps_diluted(us_gaap, EPS_DILUTED_TAGS, fy)
+    if eps_diluted is not None and sh_diluted is not None:
+        sh = sh_diluted
+    elif eps_basic is not None and sh_basic is not None:
+        sh = sh_basic
+    else:
+        sh = sh_diluted if sh_diluted is not None else sh_basic
     out["shares_outstanding"] = sh
-    out["shares_diluted"] = sh
+    out["shares_diluted"] = sh_diluted
 
-    out["eps_basic"] = waterfall_eps_basic(us_gaap, EPS_BASIC_TAGS, fy)
-    out["eps_diluted"] = None
+    out["eps_basic"] = eps_basic
+    out["eps_diluted"] = eps_diluted
 
     lt, st, curp, tdebt = total_debt_for_fy(us_gaap, fy)
     out["long_term_debt"] = lt

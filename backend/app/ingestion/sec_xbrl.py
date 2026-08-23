@@ -76,6 +76,16 @@ EPS_BASIC_TAGS = (
     "IncomeLossFromContinuingOperationsPerBasicShare",
 )
 
+EPS_DILUTED_TAGS = (
+    "EarningsPerShareDiluted",
+    "IncomeLossFromContinuingOperationsPerDilutedShare",
+)
+
+SHARES_BASIC_TAGS = (
+    "WeightedAverageNumberOfSharesOutstandingBasic",
+    "WeightedAverageNumberOfShareOutstandingBasicAndDiluted",
+)
+
 SHARES_DILUTED_TAGS = (
     "WeightedAverageNumberOfDilutedSharesOutstanding",
     "WeightedAverageNumberOfSharesOutstandingDiluted",
@@ -218,6 +228,14 @@ def waterfall_eps_basic(us_gaap: dict[str, Any], tags: tuple[str, ...], fy: int)
     return None
 
 
+def waterfall_eps_diluted(us_gaap: dict[str, Any], tags: tuple[str, ...], fy: int) -> Optional[float]:
+    for t in tags:
+        v = _read_numeric_for_fy(us_gaap, t, fy, EPS_UNITS)
+        if v is not None:
+            return v
+    return None
+
+
 def _read_shares_for_fy(us_gaap: dict[str, Any], tag: str, fy: int) -> Optional[float]:
     obj = us_gaap.get(tag)
     if not isinstance(obj, dict):
@@ -259,6 +277,14 @@ def shares_outstanding_for_fy(us_gaap: dict[str, Any], fy: int) -> Optional[floa
     if treasury is not None:
         return max(0.0, float(issued) - abs(float(treasury)))
     return float(issued)
+
+
+def shares_basic_for_fy(us_gaap: dict[str, Any], fy: int) -> Optional[float]:
+    for tag in SHARES_BASIC_TAGS:
+        v = _read_shares_for_fy(us_gaap, tag, fy)
+        if v is not None:
+            return v
+    return None
 
 
 def collect_fiscal_years_from_revenue(us_gaap: dict[str, Any]) -> tuple[Optional[str], list[int]]:
