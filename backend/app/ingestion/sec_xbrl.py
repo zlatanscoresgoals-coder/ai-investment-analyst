@@ -34,6 +34,7 @@ CAPEX_TAGS = (
     # Cash paid for PP&E — primary sources (cash flow statement)
     "PaymentsToAcquirePropertyPlantAndEquipment",
     "PaymentsToAcquireProductiveAssets",        # NVDA, AMZN use this
+    "PaymentsToAcquireOtherProductiveAssets",   # VZ reports cash capex here
     "PaymentsForCapitalImprovements",
     "PurchasesOfPropertyAndEquipment",
     # Accrued-but-not-yet-paid — last resort only; significantly understates true capex
