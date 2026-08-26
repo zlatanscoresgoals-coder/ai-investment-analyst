@@ -124,6 +124,19 @@ CASH_TAGS = (
     "CashCashEquivalentsAndRestrictedCash",
 )
 
+LIQUID_ASSETS_AGGREGATE_TAGS = (
+    "CashCashEquivalentsAndShortTermInvestments",
+)
+
+MARKETABLE_SECURITIES_CURRENT_TAGS = (
+    "MarketableSecuritiesCurrent",
+    "ShortTermInvestments",
+)
+
+MARKETABLE_SECURITIES_NONCURRENT_TAGS = (
+    "MarketableSecuritiesNoncurrent",
+)
+
 OPERATING_INCOME_TAGS = ("OperatingIncomeLoss",)
 
 
@@ -208,6 +221,28 @@ def waterfall_money(us_gaap: dict[str, Any], tags: tuple[str, ...], fy: int) -> 
         if v is not None:
             return v
     return None
+
+
+def liquid_assets_for_fy(us_gaap: dict[str, Any], fy: int) -> Optional[float]:
+    """
+    Cash available for valuation net-debt bridges.
+
+    Prefer SEC aggregate cash + short-term investments when available, then add
+    explicitly noncurrent marketable securities. If the aggregate is absent,
+    sum non-overlapping cash, current marketable securities, and noncurrent
+    marketable securities components.
+    """
+    aggregate = waterfall_money(us_gaap, LIQUID_ASSETS_AGGREGATE_TAGS, fy)
+    noncurrent_securities = waterfall_money(us_gaap, MARKETABLE_SECURITIES_NONCURRENT_TAGS, fy)
+    if aggregate is not None:
+        return float(aggregate) + float(noncurrent_securities or 0.0)
+
+    cash = waterfall_money(us_gaap, CASH_TAGS, fy)
+    current_securities = waterfall_money(us_gaap, MARKETABLE_SECURITIES_CURRENT_TAGS, fy)
+    parts = [v for v in (cash, current_securities, noncurrent_securities) if v is not None]
+    if not parts:
+        return None
+    return float(sum(parts))
 
 
 def waterfall_eps_basic(us_gaap: dict[str, Any], tags: tuple[str, ...], fy: int) -> Optional[float]:

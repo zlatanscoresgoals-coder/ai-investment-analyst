@@ -9,7 +9,6 @@ from app.ingestion.sec_filings import SEC_COMPANYFACTS_URL, _get_json, get_cik_f
 from app.ingestion.sec_xbrl import (
     BUYBACK_TAGS,
     CAPEX_TAGS,
-    CASH_TAGS,
     CFO_TAGS,
     DEPRECIATION_TAGS,
     DIVIDEND_TAGS,
@@ -25,6 +24,7 @@ from app.ingestion.sec_xbrl import (
     TOTAL_ASSETS_TAGS,
     collect_fiscal_years_from_revenue,
     effective_tax_rate_pct,
+    liquid_assets_for_fy,
     revenue_for_fy,
     shares_outstanding_for_fy,
     total_debt_for_fy,
@@ -170,7 +170,7 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
     else:
         out["debt_current"] = None
 
-    out["cash"] = waterfall_money(us_gaap, CASH_TAGS, fy)
+    out["cash"] = liquid_assets_for_fy(us_gaap, fy)
 
     div_raw = waterfall_money(us_gaap, DIVIDEND_TAGS, fy)
     if div_raw is not None:
@@ -198,7 +198,7 @@ def fetch_latest_valuation_inputs(ticker: str) -> dict[str, Any]:
 
 def net_debt_from_inputs(v: dict[str, Any]) -> float:
     """
-    Net debt = total financial debt − cash & equivalents.
+    Net debt = total financial debt − liquid assets (cash + marketable securities).
     Returns a signed float: positive = net debt, negative = net cash.
     Net cash companies (e.g. Apple, Google) will have a negative value here,
     which correctly *adds* to equity value in the DCF bridge.
