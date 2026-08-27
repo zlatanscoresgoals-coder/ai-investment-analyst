@@ -113,40 +113,47 @@ def build_daily_value_series(positions: list[dict[str, Any]], max_points: int = 
     """Linear interpolate each holding from entry price to current price; sum per calendar day."""
     if not positions:
         return []
-    entry_dates: list[date] = []
+    prepared: list[tuple[date, float, float, float]] = []
     for p in positions:
         try:
-            entry_dates.append(_parse_iso_date(str(p.get("entryDate", ""))))
+            ed = _parse_iso_date(str(p.get("entryDate", "")))
         except ValueError:
             continue
-    if not entry_dates:
+        ep = float(p.get("entryPrice") or 0)
+        sh = float(p.get("shares") or 0)
+        cp = float(p.get("currentPrice") or ep)
+        prepared.append((ed, ep, sh, cp))
+    if not prepared:
         return []
-    start = min(entry_dates)
+    start = min(ed for ed, _, _, _ in prepared)
     end = date.today()
+    total_days = max(0, (end - start).days)
+    max_points = max(1, int(max_points or 1))
+
+    if total_days + 1 <= max_points:
+        chart_dates = [start + timedelta(days=i) for i in range(total_days + 1)]
+    elif max_points == 1:
+        chart_dates = [end]
+    else:
+        last_slot = max_points - 1
+        chart_dates = [
+            start + timedelta(days=round(i * total_days / last_slot))
+            for i in range(max_points)
+        ]
+        chart_dates[-1] = end
+
     series: list[dict[str, Any]] = []
-    d = start
-    while d <= end:
+    for d in chart_dates:
         day_total = 0.0
-        for p in positions:
-            try:
-                ed = _parse_iso_date(str(p.get("entryDate", "")))
-            except ValueError:
-                continue
+        for ed, ep, sh, cp in prepared:
             if d < ed:
                 continue
-            ep = float(p.get("entryPrice") or 0)
-            sh = float(p.get("shares") or 0)
-            cp = float(p.get("currentPrice") or ep)
             span_days = max(1, (end - ed).days)
             elapsed = (d - ed).days
             frac = min(1.0, elapsed / span_days)
             px = ep + (cp - ep) * frac
             day_total += sh * px
         series.append({"date": d.isoformat(), "value": round(day_total, 2)})
-        d += timedelta(days=1)
-    if len(series) > max_points:
-        step = max(1, len(series) // max_points)
-        series = series[::step] + [series[-1]]
     return series
 
 
