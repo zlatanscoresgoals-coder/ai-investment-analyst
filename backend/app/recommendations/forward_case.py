@@ -6,7 +6,7 @@ from typing import Any, Optional
 def build_forward_investment_case(
     company_name: str,
     ticker: str,
-    revenue_growth_pct: float,
+    revenue_growth_pct: Optional[float],
     operating_margin: Optional[float],
     roe: Optional[float],
     fcf: Optional[float],

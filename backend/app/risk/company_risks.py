@@ -181,7 +181,7 @@ def _extract_headline_risks(
 
 def _financial_risks(
     latest: Any,
-    revenue_growth: float,
+    revenue_growth: Optional[float],
     trend_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     risks: list[dict[str, Any]] = []
@@ -241,12 +241,13 @@ def _financial_risks(
             risks.append(r(f"3-year operating margin decline of {oldest_om - latest_om:.1f}pp — structural erosion of profitability.", MEDIUM))
 
     # Revenue growth
-    if revenue_growth < -10.0:
-        risks.append(r(f"Revenue declined sharply ({revenue_growth:.1f}% YoY) — significant market-share loss or demand destruction.", HIGH))
-    elif revenue_growth < -3.0:
-        risks.append(r(f"Revenue contraction of {revenue_growth:.1f}% YoY — top-line weakness may signal structural headwinds.", MEDIUM))
-    elif revenue_growth < 0:
-        risks.append(r(f"Revenue growth turned slightly negative ({revenue_growth:.1f}%) — watch for sustained deceleration.", LOW))
+    if revenue_growth is not None:
+        if revenue_growth < -10.0:
+            risks.append(r(f"Revenue declined sharply ({revenue_growth:.1f}% YoY) — significant market-share loss or demand destruction.", HIGH))
+        elif revenue_growth < -3.0:
+            risks.append(r(f"Revenue contraction of {revenue_growth:.1f}% YoY — top-line weakness may signal structural headwinds.", MEDIUM))
+        elif revenue_growth < 0:
+            risks.append(r(f"Revenue growth turned slightly negative ({revenue_growth:.1f}%) — watch for sustained deceleration.", LOW))
 
     # Liquidity
     cr = getattr(latest, "current_ratio", None)
@@ -306,7 +307,7 @@ def build_company_risk_json(
     ticker: str,
     sector: Optional[str],
     latest: Any,
-    revenue_growth: float,
+    revenue_growth: Optional[float],
     trend_rows: list[dict[str, Any]],
     keyword_counts: dict[str, int],
     news_rows: list[dict[str, Any]],
