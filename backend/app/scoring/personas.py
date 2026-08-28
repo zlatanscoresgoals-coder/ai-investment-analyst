@@ -183,8 +183,9 @@ def score_wood(metrics: dict[str, Any], sector: Optional[str] = None) -> float:
     score = 35.0
 
     # Revenue growth: primary signal
-    rg = metrics.get("revenue_growth_pct") or 0.0
-    score += _soft(rg, 25.0, 5.0, scale=20.0)
+    rg = metrics.get("revenue_growth_pct")
+    if rg is not None:
+        score += _soft(rg, 25.0, 5.0, scale=20.0)
 
     # Gross margin: scalability of the growth
     gm = metrics.get("gross_margin") or 0.0

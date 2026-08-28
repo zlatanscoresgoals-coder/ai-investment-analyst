@@ -71,11 +71,21 @@ def _ensure_metric_rows(db: Session, company: Company) -> list:
     return rows
 
 
+def _adjacent_prior_metric_row(metric_rows: list):
+    if not metric_rows:
+        return None
+    latest_year = getattr(metric_rows[0], "fiscal_year", None)
+    if latest_year is None:
+        return None
+    target_year = latest_year - 1
+    return next((row for row in metric_rows[1:] if getattr(row, "fiscal_year", None) == target_year), None)
+
+
 def run_recommendation_for_company(db: Session, company: Company) -> Recommendation:
     metric_rows = _ensure_metric_rows(db, company)
 
     latest = metric_rows[0]
-    prior = metric_rows[1] if len(metric_rows) > 1 else None
+    prior = _adjacent_prior_metric_row(metric_rows)
 
     # Build trend_rows first so compute_financial_ratios can derive 3-year signals.
     trend_rows = []
@@ -145,7 +155,12 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
     ):
         # Prevent recommendation churn from short-term noise.
         status = "recommended"
-    revenue_growth = metrics.get("revenue_growth_pct") or 0.0
+    revenue_growth = metrics.get("revenue_growth_pct")
+    revenue_growth_label = (
+        f"revenue growth {revenue_growth:.1f}% YoY"
+        if revenue_growth is not None
+        else "revenue growth unavailable because the prior fiscal year is missing"
+    )
     filing_years = [f.fiscal_year for f in filings]
 
     keyword_counts = {"risk": 0, "ai": 0, "debt": 0, "litigation": 0, "growth": 0}
@@ -194,9 +209,9 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
         ),
         (
             f"Wood lens ({score_card['wood_score']:.1f}): "
-            f"revenue growth {revenue_growth:.1f}% YoY, "
+            f"{revenue_growth_label}, "
             f"FCF CAGR {fcf_cagr:.1f}% over 3 years." if fcf_cagr is not None
-            else f"Wood lens ({score_card['wood_score']:.1f}): revenue growth {revenue_growth:.1f}% YoY."
+            else f"Wood lens ({score_card['wood_score']:.1f}): {revenue_growth_label}."
         ),
         (
             f"Burry lens ({score_card['burry_score']:.1f}): "
@@ -317,7 +332,11 @@ def run_recommendation_for_company(db: Session, company: Company) -> Recommendat
         ),
         thesis_json={
             "why_now": [
-                f"Revenue growth: {revenue_growth:.1f}% YoY"
+                (
+                    f"Revenue growth: {revenue_growth:.1f}% YoY"
+                    if revenue_growth is not None
+                    else "Revenue growth: unavailable because the prior fiscal year is missing"
+                )
                 + (f", FCF CAGR {metrics['fcf_cagr_pct']:.1f}% (3Y)" if metrics.get("fcf_cagr_pct") is not None else "") + ".",
                 f"Operating margin: {latest.operating_margin or 0:.1f}%"
                 + (f" ({'expanding' if (metrics.get('operating_margin_trend') or 0) > 0 else 'contracting'} trend)" if metrics.get("operating_margin_trend") is not None else "") + ".",

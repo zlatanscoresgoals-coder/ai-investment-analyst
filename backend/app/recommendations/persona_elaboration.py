@@ -173,7 +173,7 @@ def _keyword_note(lens_key: str, kw: dict[str, int]) -> Optional[str]:
     return None
 
 
-def _driver_lines(lens_key: str, latest: Any, revenue_growth: float, raw_metrics: dict[str, Any]) -> list[str]:
+def _driver_lines(lens_key: str, latest: Any, revenue_growth: Optional[float], raw_metrics: dict[str, Any]) -> list[str]:
     lines: list[str] = []
 
     def gv(attr: str) -> Optional[float]:
@@ -195,7 +195,10 @@ def _driver_lines(lens_key: str, latest: Any, revenue_growth: float, raw_metrics
         lines.append(f"ROIC {gv('roic') or 0:.1f}% — capital efficiency (±8 pts).")
         lines.append("Operating margin 3-year trend also modifies score (±5 pts).")
     elif lens_key == "wood":
-        lines.append(f"Revenue growth {revenue_growth:.1f}% YoY — primary signal (±20 pts; good=25%, ok=5%).")
+        if revenue_growth is None:
+            lines.append("Revenue growth YoY unavailable — prior fiscal-year revenue is missing, so this signal is not scored.")
+        else:
+            lines.append(f"Revenue growth {revenue_growth:.1f}% YoY — primary signal (±20 pts; good=25%, ok=5%).")
         lines.append(f"Gross margin {gv('gross_margin') or 0:.1f}% — scalability of growth (±10 pts).")
         lines.append("FCF CAGR (3Y) — secondary growth-to-cash conversion signal (±8 pts).")
         lines.append("No P/E penalty — Wood accepts elevated valuations for disruptive growth.")
@@ -239,7 +242,7 @@ def build_persona_lens_elaboration(
     weights: dict[str, float],
     persona_checklist: dict[str, list[dict[str, Any]]],
     latest: Any,
-    revenue_growth: float,
+    revenue_growth: Optional[float],
     trend_rows: list[dict[str, Any]],
     keyword_counts: dict[str, int],
     raw_metrics: dict[str, Any],

@@ -106,7 +106,14 @@ def _enrich_thesis_key_financials(db: Session, company_id: int, thesis: dict[str
     if not rows:
         return thesis
     latest = rows[0]
-    prior = rows[1] if len(rows) > 1 else None
+    prior = next(
+        (
+            row
+            for row in rows[1:]
+            if latest.fiscal_year is not None and row.fiscal_year == latest.fiscal_year - 1
+        ),
+        None,
+    )
     old_kf = thesis.get("key_financials")
     old_kf = old_kf if isinstance(old_kf, dict) else {}
     revenue_growth: Optional[float] = None
@@ -130,7 +137,7 @@ def _enrich_thesis_key_financials(db: Session, company_id: int, thesis: dict[str
         "roe": pick("roe"),
         "current_ratio": pick("current_ratio"),
         "debt_to_ebitda": pick("debt_to_ebitda"),
-        "revenue_growth_pct": revenue_growth if revenue_growth is not None else old_kf.get("revenue_growth_pct"),
+        "revenue_growth_pct": revenue_growth,
     }
     thesis = {**thesis, "key_financials": kf}
     return thesis

@@ -9,14 +9,13 @@ def compute_financial_ratios(
     ratios = dict(latest_metrics)
 
     # Year-over-year revenue growth
-    if prior_metrics and prior_metrics.get("revenue"):
-        growth = (
-            (latest_metrics.get("revenue", 0) - prior_metrics["revenue"])
-            / prior_metrics["revenue"]
-        ) * 100
+    latest_revenue = latest_metrics.get("revenue")
+    prior_revenue = prior_metrics.get("revenue") if prior_metrics else None
+    if latest_revenue is not None and prior_revenue is not None and float(prior_revenue) != 0:
+        growth = ((float(latest_revenue) - float(prior_revenue)) / float(prior_revenue)) * 100
         ratios["revenue_growth_pct"] = growth
     else:
-        ratios["revenue_growth_pct"] = 0.0
+        ratios["revenue_growth_pct"] = None
 
     # 3-year trend signals derived from the full historical window.
     # These give the scoring layer directional context that single-year snapshots miss.
