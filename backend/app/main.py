@@ -573,8 +573,8 @@ def recommendations_leaderboard(
         merged.extend(wl_rows[: max(0, limit - len(merged))])
 
     out: list[LeaderboardItemOut] = []
+    # Keep bulk list responses bounded; detail endpoints fetch live quotes for one ticker.
     for rank, (comp_score, rec, company) in enumerate(merged[:limit], start=1):
-        live = fetch_live_quote(company.ticker)
         sector_disp = resolve_sector_for_display(company.ticker, company.sector)
         out.append(
             LeaderboardItemOut(
@@ -587,11 +587,6 @@ def recommendations_leaderboard(
                 summary=rec.summary,
                 horizon=rec.horizon,
                 as_of=rec.as_of,
-                last_price=live["last_price"] if live else None,
-                price_currency=live.get("currency") if live else None,
-                price_change_pct_day=live.get("change_pct_day") if live else None,
-                quote_as_of=live.get("as_of") if live else None,
-                quote_source=live.get("source") if live else None,
                 composite_score=round(comp_score, 3),
                 rank=rank,
             )
@@ -632,8 +627,8 @@ def list_recommendations(
         q = q.filter(Company.ticker.in_(get_candidate_tickers()))
     rows = q.order_by(Recommendation.final_score.desc()).all()
     out: list[RecommendationOut] = []
+    # Keep bulk list responses bounded; detail endpoints fetch live quotes for one ticker.
     for rec, company in rows:
-        live = fetch_live_quote(company.ticker)
         sector_disp = resolve_sector_for_display(company.ticker, company.sector)
         out.append(
             RecommendationOut(
@@ -646,11 +641,6 @@ def list_recommendations(
                 summary=rec.summary,
                 horizon=rec.horizon,
                 as_of=rec.as_of,
-                last_price=live["last_price"] if live else None,
-                price_currency=live.get("currency") if live else None,
-                price_change_pct_day=live.get("change_pct_day") if live else None,
-                quote_as_of=live.get("as_of") if live else None,
-                quote_source=live.get("source") if live else None,
             )
         )
     response.headers["Cache-Control"] = "no-store, max-age=0"
