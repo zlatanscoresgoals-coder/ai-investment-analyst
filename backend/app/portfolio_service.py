@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
@@ -109,6 +110,14 @@ def _enrich_one(p: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _enrich_positions(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(positions) <= 1:
+        return [_enrich_one(p) for p in positions]
+    max_workers = min(8, len(positions))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return list(pool.map(_enrich_one, positions))
+
+
 def build_daily_value_series(positions: list[dict[str, Any]], max_points: int = 450) -> list[dict[str, Any]]:
     """Linear interpolate each holding from entry price to current price; sum per calendar day."""
     if not positions:
@@ -186,7 +195,7 @@ def compute_summary(enriched: list[dict[str, Any]]) -> dict[str, Any]:
 
 def get_portfolio_payload(db: Optional[Session]) -> dict[str, Any]:
     raw = load_positions()
-    enriched = [_enrich_one(p) for p in raw]
+    enriched = _enrich_positions(raw)
     summary = compute_summary(enriched)
     chart = build_daily_value_series(enriched)
     return {"positions": enriched, "summary": summary, "chart": chart}
