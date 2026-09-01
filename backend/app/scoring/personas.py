@@ -113,15 +113,16 @@ def score_buffett(metrics: dict[str, Any], sector: Optional[str] = None) -> floa
     gm = metrics.get("gross_margin") or 0.0
     score += _soft(gm, gm_good, gm_ok, scale=10.0)
 
-    # FCF: normalised to revenue so large-cap doesn't dominate small-cap
+    # FCF: normalised to revenue so large-cap doesn't dominate small-cap.
+    # Missing FCF is sparse data, not evidence of zero cash conversion.
     rev = metrics.get("revenue") or 0.0
-    fcf = metrics.get("fcf") or 0.0
-    if rev > 0:
+    fcf = metrics.get("fcf")
+    if fcf is not None and rev > 0:
         fcf_margin = fcf / rev * 100.0
         score += _soft(fcf_margin, 15.0, 0.0, scale=10.0)
-    elif fcf > 0:
+    elif fcf is not None and fcf > 0:
         score += 5.0  # positive FCF with no revenue context
-    else:
+    elif fcf is not None:
         score -= 8.0  # negative FCF is a red flag
 
     # Debt/EBITDA: leverage penalty

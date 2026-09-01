@@ -185,9 +185,14 @@ def _driver_lines(lens_key: str, latest: Any, revenue_growth: float, raw_metrics
     if lens_key == "buffett":
         lines.append(f"ROIC {gv('roic') or 0:.1f}% — primary moat signal; sector-relative threshold applied (±14 pts).")
         lines.append(f"Gross margin {gv('gross_margin') or 0:.1f}% — pricing power proxy (±10 pts, sector-adjusted).")
-        fcf = gv("fcf") or 0.0
-        fcf_margin = (fcf / rev * 100.0) if rev > 0 else 0.0
-        lines.append(f"FCF margin {fcf_margin:.1f}% of revenue — normalised so large-cap doesn't dominate (±10 pts).")
+        fcf = gv("fcf")
+        if fcf is not None and rev > 0:
+            fcf_margin = fcf / rev * 100.0
+            lines.append(f"FCF margin {fcf_margin:.1f}% of revenue — normalised so large-cap doesn't dominate (±10 pts).")
+        elif fcf is not None:
+            lines.append("Positive/negative FCF is evaluated directly because revenue context is unavailable (±8 pts).")
+        else:
+            lines.append("FCF margin unavailable — omitted from this lens until cash-flow data is present.")
         lines.append(f"Debt/EBITDA {gv('debt_to_ebitda') or 0:.2f}× — leverage penalty (±8 pts, sector-adjusted).")
     elif lens_key == "ackman":
         lines.append(f"Operating margin {gv('operating_margin') or 0:.1f}% — core profitability (±14 pts, sector-adjusted).")
