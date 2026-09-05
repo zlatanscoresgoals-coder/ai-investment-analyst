@@ -244,6 +244,18 @@ def _is_auth_path(path: str) -> bool:
     return False
 
 
+def _request_uses_https(request: Request) -> bool:
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    if forwarded_proto:
+        return forwarded_proto.split(",", 1)[0].strip().lower() == "https"
+
+    forwarded = request.headers.get("forwarded", "")
+    if re.search(r"(?i)(^|[;,]\s*)proto=https($|[;,])", forwarded):
+        return True
+
+    return request.url.scheme == "https"
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     if not settings.auth_enabled:
@@ -384,7 +396,7 @@ def login_page():
 
 
 @app.post("/login")
-def login(username: str = Form(...), password: str = Form(...)):
+def login(request: Request, username: str = Form(...), password: str = Form(...)):
     if username != settings.auth_username or password != settings.auth_password:
         return HTMLResponse("<h3>Invalid credentials. Go back and try again.</h3>", status_code=401)
     token = secrets.token_urlsafe(24)
@@ -395,7 +407,7 @@ def login(username: str = Form(...), password: str = Form(...)):
         token,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=_request_uses_https(request),
         max_age=60 * 60 * 24,
     )
     return response
