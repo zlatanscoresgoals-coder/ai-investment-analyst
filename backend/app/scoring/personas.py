@@ -180,15 +180,18 @@ def score_ackman(metrics: dict[str, Any], sector: Optional[str] = None) -> float
 # ---------------------------------------------------------------------------
 
 def score_wood(metrics: dict[str, Any], sector: Optional[str] = None) -> float:
+    sk = _sector_key(sector)
+    gm_good, gm_ok = _GROSS_MARGIN_BANDS[sk]
+
     score = 35.0
 
     # Revenue growth: primary signal
     rg = metrics.get("revenue_growth_pct") or 0.0
     score += _soft(rg, 25.0, 5.0, scale=20.0)
 
-    # Gross margin: scalability of the growth
+    # Gross margin: scalability of the growth, normalized to sector economics.
     gm = metrics.get("gross_margin") or 0.0
-    score += _soft(gm, 60.0, 30.0, scale=10.0)
+    score += _soft(gm, gm_good, gm_ok, scale=10.0)
 
     # FCF CAGR: growth converting to cash (secondary)
     fcf_cagr = metrics.get("fcf_cagr_pct")
