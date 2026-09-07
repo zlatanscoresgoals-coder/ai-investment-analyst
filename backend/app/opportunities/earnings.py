@@ -10,10 +10,34 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_earnings_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if hasattr(value, "to_pydatetime"):
+        try:
+            dt = value.to_pydatetime()
+            return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            return None
+    try:
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            dt = datetime.strptime(text[:10], "%Y-%m-%d")
+        return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
 
 
 def _fetch_earnings(ticker: str) -> Optional[dict[str, Any]]:
@@ -33,33 +57,32 @@ def _fetch_earnings(ticker: str) -> Optional[dict[str, Any]]:
         # Earnings date(s) from calendar
         cal = t.calendar
         earnings_date = None
+        earnings_dt = None
         earnings_time = None
         if cal is not None:
             if isinstance(cal, dict):
                 ed = cal.get("Earnings Date")
                 if isinstance(ed, list) and ed:
-                    earnings_date = str(ed[0])[:10] if ed[0] else None
+                    earnings_dt = _parse_earnings_datetime(ed[0])
                 elif ed is not None:
-                    earnings_date = str(ed)[:10]
-                eh = cal.get("Earnings High")
-                el = cal.get("Earnings Low")
+                    earnings_dt = _parse_earnings_datetime(ed)
             else:
                 try:
                     if hasattr(cal, "iloc"):
-                        earnings_date = str(cal.iloc[0, 0])[:10] if len(cal) > 0 else None
+                        earnings_dt = _parse_earnings_datetime(cal.iloc[0, 0]) if len(cal) > 0 else None
                 except Exception:
                     pass
 
+        if earnings_dt is not None:
+            earnings_date = earnings_dt.date().isoformat()
         if earnings_date is None:
             return None
 
-        # Parse earnings date and check it's within next 14 days
-        try:
-            ed_dt = datetime.strptime(earnings_date, "%Y-%m-%d")
-        except (ValueError, TypeError):
-            return None
-        now = datetime.now()
-        if ed_dt < now - timedelta(days=1) or ed_dt > now + timedelta(days=14):
+        # Treat date-only midnight values conservatively: once midnight passes,
+        # the report is no longer a safe pre-earnings setup without session time.
+        ed_dt = earnings_dt
+        now = datetime.now(timezone.utc)
+        if ed_dt <= now or ed_dt > now + timedelta(days=14):
             return None
 
         # EPS surprise history (last 4 quarters)
@@ -153,7 +176,7 @@ def _assign_flag(item: dict[str, Any], meridian_scores: dict[str, float]) -> dic
         item["flag_label"] = "Monitor"
 
     # Pre-earnings setup for green-flagged stocks
-    if item["flag"] == "green":
+    if item["flag"] == "green" and item.get("days_until", 0) >= 0:
         days = item.get("days_until", 0)
         item["setup"] = {
             "entry_window": f"{max(1, days - 7)} to {max(1, days - 2)} days before earnings"
