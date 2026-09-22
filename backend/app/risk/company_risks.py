@@ -389,3 +389,24 @@ def build_company_risk_json(
             "3-year trends, filing keyword analysis, and sector structural factors."
         ),
     }
+
+
+_PERSISTED_RISK_GATE_KEYS = ("critical_event", "critical_gate_cleared_at")
+
+
+def preserve_persisted_risk_gate_metadata(
+    live_risk_json: dict[str, Any],
+    persisted_risk_json: Optional[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Keep manual/critical-gate metadata when rebuilding the rest of risk_json live.
+
+    Financial/news risk rows are intentionally refreshed on detail requests, but
+    gate metadata explains workflow state such as a blocked recommendation.
+    """
+    if not isinstance(persisted_risk_json, dict):
+        return live_risk_json
+    for key in _PERSISTED_RISK_GATE_KEYS:
+        if key in persisted_risk_json:
+            live_risk_json[key] = persisted_risk_json[key]
+    return live_risk_json
