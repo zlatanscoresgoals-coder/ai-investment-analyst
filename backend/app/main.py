@@ -30,7 +30,7 @@ from app.recommendations.ranking import composite_leaderboard_score
 from app.valuation_data import fetch_latest_valuation_inputs
 from app.valuation_interpretation import build_valuation_interpretation
 from app.valuation_math import build_valuation_bundle
-from app.risk.company_risks import build_company_risk_json
+from app.risk.company_risks import build_company_risk_json, preserve_persisted_risk_gate_metadata
 from app.risk.critical_events import is_actionable_critical_alert
 from app.schemas import (
     GenericMessage,
@@ -827,6 +827,8 @@ def get_recommendation_detail(ticker: str, response: Response, db: Session = Dep
         keyword_counts=_kw,
         news_rows=news_rows,
     ) if _latest_m else (rec.risk_json or {})
+    if _latest_m:
+        live_risk_json = preserve_persisted_risk_gate_metadata(live_risk_json, rec.risk_json)
 
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return RecommendationDetailOut(
