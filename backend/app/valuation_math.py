@@ -323,7 +323,8 @@ def build_valuation_bundle(
         _beta = _estimate_beta(_td, _e_mkt, float(_e_book) if _e_book else None)
         _re = 4.3 + _beta * 5.5  # CAPM cost of equity
         _int = sec_inputs.get("interest_expense")
-        _tax = sec_inputs.get("effective_tax_rate_pct") or 21.0
+        _tax_input = sec_inputs.get("effective_tax_rate_pct")
+        _tax = _tax_input if _tax_input is not None else 21.0
         _rd_pretax = (abs(float(_int)) / _td * 100.0) if (_td > 0 and _int) else 5.5
         _rd = min(15.0, max(1.0, _rd_pretax)) * (1 - _tax / 100.0)
         _e_val = _e_mkt if _e_mkt else (float(_e_book) if _e_book else 0.0)
