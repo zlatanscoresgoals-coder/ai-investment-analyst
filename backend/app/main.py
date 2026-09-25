@@ -444,9 +444,12 @@ def run_analysis(ticker: str, db: Session = Depends(get_db)) -> GenericMessage:
         raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found in universe.")
 
     try:
+        _store_filings_and_metrics(db, company)
         run_recommendation_for_company(db, company)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to analyze {company.ticker}: {exc}") from exc
     return GenericMessage(message=f"Analysis and scoring completed for {ticker.upper()}.")
 
 
@@ -491,14 +494,24 @@ def run_recommendations(
         )
 
     ok = 0
+    failures: list[str] = []
     for company in companies:
         try:
+            _store_filings_and_metrics(db, company)
             run_recommendation_for_company(db, company)
             ok += 1
-        except ValueError:
+        except ValueError as exc:
+            failures.append(f"{company.ticker}: {exc}")
+            continue
+        except Exception as exc:
+            failures.append(f"{company.ticker}: {type(exc).__name__}: {exc}")
             continue
     scope = "candidate pool (meridian_candidate_universe.json)" if meridian_only else "all DB"
-    return GenericMessage(message=f"Recommendations updated for {ok} of {len(companies)} companies ({scope}).")
+    failure_note = f" Failed: {len(failures)}." if failures else ""
+    return GenericMessage(
+        message=f"Recommendations updated for {ok} of {len(companies)} companies ({scope}).{failure_note}",
+        failures=failures or None,
+    )
 
 
 @app.post("/run/full", response_model=GenericMessage)
