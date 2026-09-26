@@ -36,9 +36,11 @@ def _ensure_metric_rows(db: Session, company: Company) -> list:
     """
     sec_metrics = fetch_financial_metrics_last_3y(company.ticker.upper())
 
+    fresh_years: set[int] = set()
     if sec_metrics:
         for m in sec_metrics:
             fy = m["fiscal_year"]
+            fresh_years.add(fy)
             existing = (
                 db.query(FinancialMetric)
                 .filter(
@@ -56,13 +58,10 @@ def _ensure_metric_rows(db: Session, company: Company) -> list:
                 db.add(FinancialMetric(company_id=company.id, **m))
         db.commit()
 
-    rows = (
-        db.query(FinancialMetric)
-        .filter(FinancialMetric.company_id == company.id)
-        .order_by(FinancialMetric.fiscal_year.desc())
-        .limit(3)
-        .all()
-    )
+    metrics_query = db.query(FinancialMetric).filter(FinancialMetric.company_id == company.id)
+    if fresh_years:
+        metrics_query = metrics_query.filter(FinancialMetric.fiscal_year.in_(fresh_years))
+    rows = metrics_query.order_by(FinancialMetric.fiscal_year.desc()).limit(3).all()
     if not rows:
         raise ValueError(
             f"No financial metrics available for {company.ticker}. "
