@@ -10,6 +10,7 @@ Risk output is structured by category for rich frontend rendering.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 
@@ -121,7 +122,9 @@ _HEADLINE_RISK_MAP: list[tuple[tuple[str, ...], str, str]] = [
     (("layoff", "layoffs", "mass redundancy", "workforce reduction", "job cuts"),
      "Significant workforce reduction announced — signals cost pressure or strategic pivot.",
      MEDIUM),
-    (("ceo resign", "cfo resign", "chief executive resign", "management departure", "leadership change"),
+    (("ceo resign", "ceo resigns", "ceo resigned", "cfo resign", "cfo resigns", "cfo resigned",
+      "chief executive resign", "chief executive resigns", "chief executive resigned",
+      "management departure", "leadership change"),
      "Senior management departure — execution and strategy continuity uncertainty.",
      MEDIUM),
     (("downgrade", "sell rating", "price target cut", "underperform"),
@@ -144,6 +147,24 @@ _HEADLINE_RISK_MAP: list[tuple[tuple[str, ...], str, str]] = [
      LOW),
 ]
 
+_NEGATED_RISK_PREFIX_RE = re.compile(
+    r"\b(?:no|not|without|avoid(?:s|ed|ing)?|prevent(?:s|ed|ing)?)\b(?:\W+\w+){0,3}\W*$"
+)
+
+
+def _keyword_pattern(keyword: str) -> re.Pattern[str]:
+    phrase = r"\s+".join(re.escape(part) for part in keyword.split())
+    return re.compile(rf"(?<![a-z0-9]){phrase}(?![a-z0-9])")
+
+
+def _headline_matches_keyword(blob: str, keyword: str) -> bool:
+    for match in _keyword_pattern(keyword).finditer(blob):
+        prefix = blob[max(0, match.start() - 80):match.start()]
+        if _NEGATED_RISK_PREFIX_RE.search(prefix):
+            continue
+        return True
+    return False
+
 
 def _extract_headline_risks(
     news_rows: list[dict[str, Any]],
@@ -163,7 +184,7 @@ def _extract_headline_risks(
         triggering_headlines = []
         for h in news_rows:
             blob = ((h.get("title") or "") + " " + (h.get("description") or "")).lower()
-            if any(kw in blob for kw in keywords):
+            if any(_headline_matches_keyword(blob, kw) for kw in keywords):
                 triggering_headlines.append(h)
         if triggering_headlines and risk_text not in seen_risk_texts:
             seen_risk_texts.add(risk_text)
