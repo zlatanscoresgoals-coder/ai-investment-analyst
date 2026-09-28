@@ -178,6 +178,29 @@ def _get_or_create_company(db: Session, ticker: str) -> Company:
     return company
 
 
+def _is_legacy_automatic_block(rec: Recommendation) -> bool:
+    if rec.status != "blocked":
+        return False
+    if "critical risk gate" in (rec.summary or "").lower():
+        return True
+    risk = rec.risk_json or {}
+    return isinstance(risk, dict) and bool(risk.get("critical_event"))
+
+
+def _active_critical_alert_company_ids(db: Session) -> set[int]:
+    active: set[int] = set()
+    for alert in db.query(CriticalAlert).all():
+        details = alert.details_json if isinstance(alert.details_json, dict) else {}
+        workflow_status = details.get("workflow_status", "blocked")
+        if workflow_status == "unblocked":
+            continue
+        # Manual review states are intentionally sticky; startup must never clear
+        # their corresponding blocked recommendation merely because the app rebooted.
+        if workflow_status in {"under_review", "confirmed"} or is_actionable_critical_alert(alert):
+            active.add(alert.company_id)
+    return active
+
+
 def _store_filings_and_metrics(db: Session, company: Company) -> tuple[int, int, bool]:
     sub = get_submission_json_for_ticker(company.ticker.upper())
     if sub and merge_sec_company_profile(company, sub):
@@ -269,10 +292,12 @@ async def auth_middleware(request: Request, call_next):
 def on_startup():
     db = SessionLocal()
     try:
-        db.query(Recommendation).filter(Recommendation.status == "blocked").update(
-            {"status": "watchlist"},
-            synchronize_session=False,
-        )
+        active_alert_companies = _active_critical_alert_company_ids(db)
+        for rec in db.query(Recommendation).filter(Recommendation.status == "blocked").all():
+            if rec.company_id in active_alert_companies:
+                continue
+            if _is_legacy_automatic_block(rec):
+                rec.status = "watchlist"
         db.commit()
     except Exception:
         db.rollback()
