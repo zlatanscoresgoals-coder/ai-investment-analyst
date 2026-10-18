@@ -258,7 +258,9 @@ def shares_outstanding_for_fy(us_gaap: dict[str, Any], fy: int) -> Optional[floa
         treasury = _read_shares_for_fy(us_gaap, "TreasuryStockCommonShares", fy)
     if treasury is not None:
         return max(0.0, float(issued) - abs(float(treasury)))
-    return float(issued)
+    # Issued shares include treasury stock. Without treasury shares, using issued
+    # as outstanding silently understates every per-share valuation.
+    return None
 
 
 def collect_fiscal_years_from_revenue(us_gaap: dict[str, Any]) -> tuple[Optional[str], list[int]]:
