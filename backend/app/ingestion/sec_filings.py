@@ -158,6 +158,9 @@ def build_10k_list_from_submission(submission: dict[str, Any]) -> list[dict]:
             continue
 
         report_date = report_dates[i] or filing_dates[i]
+        filing_date_raw = filing_dates[i] or report_date
+        if not report_date or not filing_date_raw:
+            continue
         fiscal_year = datetime.strptime(report_date, "%Y-%m-%d").year
         accession_raw = accessions[i]
         accession_no_dash = accession_raw.replace("-", "")
@@ -173,7 +176,7 @@ def build_10k_list_from_submission(submission: dict[str, Any]) -> list[dict]:
             {
                 "filing_type": "10-K",
                 "fiscal_year": fiscal_year,
-                "filing_date": datetime.strptime(filing_dates[i], "%Y-%m-%d").date(),
+                "filing_date": datetime.strptime(filing_date_raw, "%Y-%m-%d").date(),
                 "url": filing_url,
                 "source": "sec",
                 "raw_text": filing_text,
