@@ -71,6 +71,8 @@ SHORT_TERM_DEBT_TAGS = (
 
 CURRENT_PORTION_LTD_TAGS = ("CurrentPortionOfLongTermDebt",)
 
+CURRENT_DEBT_AGGREGATE_TAGS = ("DebtCurrent",)
+
 EPS_BASIC_TAGS = (
     "EarningsPerShareBasic",
     "IncomeLossFromContinuingOperationsPerBasicShare",
@@ -319,6 +321,10 @@ def total_debt_for_fy(us_gaap: dict[str, Any], fy: int) -> tuple[Optional[float]
     lt = waterfall_money(us_gaap, LONG_TERM_DEBT_TAGS, fy)
     st = waterfall_money(us_gaap, SHORT_TERM_DEBT_TAGS, fy)
     cur = waterfall_money(us_gaap, CURRENT_PORTION_LTD_TAGS, fy)
+    if st is None and cur is None:
+        # DebtCurrent is an aggregate current-debt tag; use it only when the
+        # narrower current components are absent so we do not double count it.
+        st = waterfall_money(us_gaap, CURRENT_DEBT_AGGREGATE_TAGS, fy)
     parts = [x for x in (lt, st, cur) if x is not None]
     if not parts:
         return lt, st, cur, None
