@@ -301,9 +301,9 @@ def build_valuation_bundle(
     # g2 (years 4-5) defaults to half of g1, capped at 15%.
     if dcf_g2 == 5.0 and dcf_g1 != 10.0:
         dcf_g2 = round(max(2.0, min(15.0, dcf_g1 / 2.0)), 2)
-    eps = sec_inputs.get("eps_basic")
+    eps = sec_inputs.get("eps_diluted")
     if eps is None:
-        eps = sec_inputs.get("eps_diluted")
+        eps = sec_inputs.get("eps_basic")
     ebitda = sec_inputs.get("ebitda")
     nd = net_debt_from_inputs(sec_inputs)
 

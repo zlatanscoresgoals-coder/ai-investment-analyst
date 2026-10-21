@@ -1127,17 +1127,21 @@ def api_earnings(db: Session = Depends(get_db)):
     from app.opportunities.earnings import scan_earnings
     from app.opportunities.universe import SCREEN_UNIVERSE
     meridian_scores: dict[str, float] = {}
-    recs = (
-        db.query(Recommendation, Company)
-        .join(Company, Company.id == Recommendation.company_id)
-        .order_by(Recommendation.as_of.desc())
-        .all()
-    )
-    seen: set[str] = set()
-    for rec, comp in recs:
-        if comp.ticker not in seen:
-            meridian_scores[comp.ticker] = rec.final_score
-            seen.add(comp.ticker)
+    try:
+        recs = (
+            db.query(Recommendation, Company)
+            .join(Company, Company.id == Recommendation.company_id)
+            .order_by(Recommendation.as_of.desc())
+            .all()
+        )
+        seen: set[str] = set()
+        for rec, comp in recs:
+            if comp.ticker not in seen:
+                meridian_scores[comp.ticker] = rec.final_score
+                seen.add(comp.ticker)
+    finally:
+        # The yfinance scan can take tens of seconds; release the DB connection first.
+        db.close()
     return scan_earnings(SCREEN_UNIVERSE, meridian_scores=meridian_scores)
 
 
