@@ -142,7 +142,7 @@ def _assign_flag(item: dict[str, Any], meridian_scores: dict[str, float]) -> dic
 
     item["meridian_score"] = round(meridian, 1) if meridian is not None else None
 
-    if beats >= 3 and total >= 3 and (meridian is None or meridian >= 65):
+    if beats >= 3 and total >= 3 and meridian is not None and meridian >= 65:
         item["flag"] = "green"
         item["flag_label"] = "Consistent Beater — Watch for Continuation"
     elif misses >= 2:
