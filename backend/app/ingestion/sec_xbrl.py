@@ -47,9 +47,10 @@ DIVIDEND_TAGS = (
 )
 
 BUYBACK_TAGS = (
+    # Cash-flow repurchase concepts only. Treasury stock carrying values are
+    # balance-sheet balances and must not be treated as annual buyback spend.
     "PaymentsForRepurchaseOfCommonStock",
     "PaymentsForRepurchaseOfEquity",
-    "TreasuryStockValueAcquiredCostMethod",
 )
 
 TOTAL_ASSETS_TAGS = ("Assets",)
